@@ -26,7 +26,7 @@ Tests needing private oracle behavior become library test modules using the real
 
 ## Rejected expansion
 
-The renderer, comparator, CLI and build modules already provide useful depth. No general CST, complete token-kind mirror, filesystem adapter framework, native parse handles, alternative parser or new public feature is justified. Renderer fit caching is only in scope if a focused post-fix measurement demonstrates remaining concrete quadratic work. No visual HTML artifact or selection/approval gate is required by the user's instruction.
+The renderer, comparator, CLI and build modules already provide useful depth. No general CST, complete token-kind mirror, filesystem adapter framework, native parse handles, alternative parser or new public feature is justified. Renderer fit caching is only in scope if a focused post-fix measurement demonstrates remaining concrete quadratic work. A renderer-only probe confirmed quadratic repeated suffix walks after continuation repair (about 3.8 million flat-width visits for 800 operands). Immutable grouped documents will cache flat width inside the renderer module; construction computes it once from already-grouped children. This preserves width decisions and hides cache consistency from callers. No visual HTML artifact or selection/approval gate is required by the user's instruction.
 
 ## Verification and reviews
 
