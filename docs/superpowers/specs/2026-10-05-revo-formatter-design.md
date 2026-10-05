@@ -9,6 +9,8 @@
 - Print formatted code by default; provide `--write` and `--check`.
 - Reuse a pinned upstream Zig parser for validation if the build and licensing work.
 - Delegate implementation tasks and independently review every task.
+- Allow formatting procedural macros; preserve syntax and treat source-position
+  changes as normal formatting effects.
 
 ## Scope and defaults
 
@@ -47,6 +49,13 @@ not a suitable comparison mechanism because it omits fields. Ordinary
 comments also require a separate ordered exact-byte preservation check.
 Non-whitespace token spellings must stay unchanged.
 
+The guarantee is syntax equivalence modulo source coordinates, rather than
+identical results for programs that inspect positions. Revo proc macros can
+observe nested parameter/type spans; formatting may therefore affect a macro
+that intentionally reads offsets, lines or columns. The user explicitly
+accepted this policy. Document it in the public API and README without
+executing macros to validate formatting.
+
 The formatter knows which token gaps encode calls, generic calls, range
 bounds and labels. Preserve those distinctions while spacing and grouping
 expressions. Candidate reflow must parse successfully and retain the same
@@ -64,6 +73,9 @@ contents opaque rather than formatting interpolation bodies independently.
 Preserve input line-ending convention for layout breaks and emit one final
 newline for nonempty source. Empty source stays empty. Preserve blank lines
 between statements, capped at one empty line where it does not affect syntax.
+The token/comment comparison is one interleaved sequence so comments cannot
+move across code tokens. A CRLF line comment's raw token already includes CR;
+emit only the missing LF after that token instead of adding another CR.
 
 ## Build and provenance
 
@@ -72,6 +84,9 @@ with its exact revision, unchanged upstream files, and MIT license notice.
 Keep the bridge separate from vendored files. Rust source builds require
 the compatible Zig toolchain; release binaries contain the parser and do not
 require a separately installed Revo or Zig executable at runtime.
+Pin the frontend build to the stable Zig 0.17.0 compiler and standard library,
+because escape decoding uses Zig's standard library. Record the official
+host-archive checksum in the build/provenance documentation.
 The first implementation task must compile and exercise this bridge before
 the printer is implemented. Build scripts must not download tools or source
 implicitly. Report an actionable error when Zig is missing or incompatible.

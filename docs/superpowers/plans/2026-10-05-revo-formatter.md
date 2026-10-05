@@ -20,6 +20,7 @@
 - Preserve all literal and comment bytes, including documentation comments, quasiquotes, interpolation and multiline-string internal indentation.
 - Non-whitespace token spellings must stay unchanged.
 - Never return a candidate that fails validation.
+- The guarantee is syntax equivalence modulo source coordinates. Formatting procedural macros is allowed; source-position changes are normal formatting effects and must be documented.
 - Formatting the output again must produce identical bytes.
 - Defaults are two spaces and 80 columns. Indent width accepts 1 through 8; line width accepts 20 through 240.
 - Width is a target, not a guarantee. Long literal/comment contents and syntax that cannot safely break may exceed it.
@@ -82,6 +83,8 @@ pub(crate) fn equivalent(original: &str, candidate: &str) -> Result<bool, Format
 ```
 
 `FormatError` implements `Display` and `std::error::Error`. `regions` carries source-backed block/statement/match-arm boundaries useful to layout, excluding synthetic generated nodes and out-of-range spans. Region kinds are `statement`, `block` and `match_arm`. Document their interpretation in `oracle.rs`; source tokens remain the printing authority when AST spans omit surface punctuation.
+
+Stable Zig 0.17.0 is the exact compiler/stdlib pin. The verified Linux x86_64 archive SHA-256 is `1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026`. A local toolchain is provisioned under `.tools/zig-x86_64-linux-0.17.0/zig`; build scripts discover it only through an explicit `ZIG` value, not by special-casing this path.
 
 - [ ] Write failing oracle tests before implementing the bridge. Establish these behavioral assertions, with actual syntax verified against the pin:
 
@@ -146,6 +149,8 @@ Test a wider setting keeps that call inline; four-space indentation changes nest
 - [ ] Normalize ordinary operator/assignment/comma spacing while preserving lexical distinctions and semantic hugging before call parentheses, generic delimiters, labels and range endpoints. Token source text determines spacing classifications; complete source ranges protect comments and literals. Validate options before calling the bridge and return `InvalidOptions` outside specified bounds.
 - [ ] Validate each candidate by reparsing, exact ordered `(kind, raw_source_bytes)` token tape comparison and complete structural equivalence. If preferred reflow changes syntax, use a documented conservative mode preserving original line-boundary and semantic adjacency decisions and verify it too. If even conservative mode cannot pass, return `Validation` with no candidate. Do not silently emit unsafe text. Ensure reflow decisions and fallback are idempotent, including a second-pass stability check or deterministic algorithm evidence in tests.
 - [ ] Add exact-byte tests for line/block/doc/module comments, multiline literal closing indentation, escapes, interpolation, backticks, Unicode inside strings/comments, CRLF source and whitespace-only input. Preserve original newlines inside opaque tokens even when layout endings differ. Test malformed input and diagnostics, extreme valid option values, and invalid 0/9 indentation and 19/241 width values.
+
+The raw CR of a CRLF line comment is part of its token. The renderer must append only LF after it, not CRLF, to avoid duplicated CR while keeping the interleaved token/comment tape unchanged. Add record-field doc comments and macro-coordinate behavior to the documented regression cases. Syntax equivalence ignores positions by the user's accepted policy; never claim full behavioral invariance for macros inspecting offsets.
 - [ ] Run focused red/green cycles while iterating, then the complete suite and Rust lint/style checks once. Commit and report. Every output fixture must include idempotence and oracle-equivalence evidence, not just visual snapshots. Obtain independent task review before CLI work.
 
 ### Task 3: Add the CLI, atomic file handling and usage docs
