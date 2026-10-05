@@ -20,10 +20,13 @@ fallback, FFI ownership and coordinate policy are unchanged.
 | Task 1, `layout_task_review` | Approved, no findings |
 | Task 2, `bridge_task_review` | Approved, no findings |
 | Task 3, `preservation_task_review` | Approved, no findings |
-| Whole change | Final independent review pending |
+| Whole change, `architecture_final_review` | Approved, no findings |
 
-All three task reviews approved spec compliance and quality with no findings.
-The final whole-change review remains pending.
+All three task reviews and the independent whole-change review approved with
+no critical, important or minor findings. The final reviewer inspected
+`35571ce5..77f0264e`, including the source, tests and recorded decisions, and
+confirmed that module ownership and complementary preservation controls satisfy
+the design. No corrective product changes were needed.
 
 ## Tests and package checks
 
