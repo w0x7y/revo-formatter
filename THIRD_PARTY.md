@@ -1,0 +1,60 @@
+# Pinned Revo frontend
+
+`vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
+at revision `b571298b6fc95bc863548f118354c8d077792f6f`.
+Paths under that directory match upstream paths exactly. `REVISION` and
+`SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
+notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
+is separately covered by the root `LICENSE`.
+
+The 22 Zig files are the relative-file import closure of `Parser.zig`,
+`Lexer.zig`, `ast.zig`, `diagnostic.zig`, and `type_syntax.zig`. Zig resolves
+imports appearing in unused declarations and tests, so source files for those
+imports must exist. Their runtime operations are not used by this bridge.
+`bridge/frontend.zig` calls only the lexer and pure parser. It never calls
+pipeline parsing, loads imports, expands macros, performs semantic analysis,
+or invokes a Revo runtime. No upstream source modifications or stub runtime
+modules are used. The separate `bridge/` modules implement owned JSON results,
+source metadata, and exhaustive structural comparison.
+
+# Source builds
+
+Install exact stable Zig **0.17.0** yourself, then run:
+
+```sh
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo test
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+/absolute/path/to/zig-0.17.0/zig test bridge.zig -lc --test-filter 'bridge:' --cache-dir target/zig-test-cache
+```
+
+`ZIG` selects the compiler; if unset, the build script tries `zig` on PATH.
+The script accepts only version output `0.17.0`. It never downloads source or
+tools and does not know the developer's local `.tools/` directory.
+The official Linux x86_64 archive is
+`https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz`, SHA-256
+`1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026`.
+The development toolchain was explicitly provisioned and checksum verified
+before this implementation task.
+
+Native `x86_64-unknown-linux-gnu` is the verified and supported source-build
+host/target pair. `build.rs` checks both Cargo `HOST` and `TARGET`, passes
+`x86_64-linux-gnu` and baseline CPU settings explicitly to Zig, and rejects
+other combinations with an actionable diagnostic. Other platforms require
+separate linking and ABI validation.
+
+The bridge is built directly as a position-independent ReleaseSafe static
+archive, including Zig compiler-rt. It bypasses upstream `build.zig` and its
+optional dependencies. Resulting binaries have no separate Zig or Revo runtime
+dependency; normal Linux C/system libraries still apply. Build caches and
+archives are placed under Cargo's output directory, outside tracked sources.
+
+# Syntax validation policy
+
+Comparison ignores only the exact upstream `ast.Span` type, including nested
+parameter/type coordinates. It compares all other fields, tagged unions,
+optional values, slices and pointed-to contents, with floats compared by bits.
+This establishes syntax equivalence modulo coordinates. Procedural macros
+that inspect positions can observe formatting-induced coordinate changes;
+the bridge never executes those macros. Raw token/comment preservation is a
+separate responsibility of the upcoming formatter.
