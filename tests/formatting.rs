@@ -281,3 +281,97 @@ fn binary_groups_fit_independently_of_other_statements() {
         narrow,
     );
 }
+
+#[test]
+fn match_arm_delimiter_envelopes_compose_indentation() {
+    for (source, expected_two, expected_four) in [
+        (
+            "match x\n| _ => do\nf()\nend",
+            "match x\n  | _ => do\n    f()\n  end\n",
+            "match x\n    | _ => do\n        f()\n    end\n",
+        ),
+        (
+            "match x\n| _ => do\ndo\nf()\nend\nend",
+            "match x\n  | _ => do\n    do\n      f()\n    end\n  end\n",
+            "match x\n    | _ => do\n        do\n            f()\n        end\n    end\n",
+        ),
+        (
+            "match x\n| _ => {\nx=1,\ny=2\n}",
+            "match x\n  | _ => {\n    x = 1,\n    y = 2\n  }\n",
+            "match x\n    | _ => {\n        x = 1,\n        y = 2\n    }\n",
+        ),
+        (
+            "match x\n| 1 => do\nf()\nend\n| _ => {\nx=1\n}",
+            "match x\n  | 1 => do\n    f()\n  end\n  | _ => {\n    x = 1\n  }\n",
+            "match x\n    | 1 => do\n        f()\n    end\n    | _ => {\n        x = 1\n    }\n",
+        ),
+        (
+            "do\nmatch x\n| _ => do\nf()\nend\nend",
+            "do\n  match x\n    | _ => do\n      f()\n    end\nend\n",
+            "do\n    match x\n        | _ => do\n            f()\n        end\nend\n",
+        ),
+        (
+            "match x\n| _ =>\ndo\nf()\nend",
+            "match x\n  | _ =>\n    do\n      f()\n    end\n",
+            "match x\n    | _ =>\n        do\n            f()\n        end\n",
+        ),
+        (
+            "match x\n| _ => # body\ndo\nf()\nend",
+            "match x\n  | _ => # body\n    do\n      f()\n    end\n",
+            "match x\n    | _ => # body\n        do\n            f()\n        end\n",
+        ),
+    ] {
+        check(
+            source,
+            expected_two,
+            FormatOptions {
+                indent_width: 2,
+                line_width: 24,
+            },
+        );
+        check(
+            source,
+            expected_four,
+            FormatOptions {
+                indent_width: 4,
+                line_width: 80,
+            },
+        );
+    }
+    check(
+        "match x\n| _ => {first_argument,second_argument}",
+        "match x\n  | _ => {\n    first_argument,\n    second_argument\n  }\n",
+        FormatOptions {
+            indent_width: 2,
+            line_width: 24,
+        },
+    );
+    check(
+        "match x\n| _ => {first_argument,second_argument}",
+        "match x\n    | _ => {first_argument, second_argument}\n",
+        FormatOptions {
+            indent_width: 4,
+            line_width: 80,
+        },
+    );
+}
+
+#[test]
+fn call_arm_delimiters_compose_with_reflow() {
+    check(
+        "match x\n| _ => f(first_argument,second_argument)",
+        "match x\n  | _ => f(\n    first_argument,\n    second_argument\n  )\n",
+        FormatOptions {
+            indent_width: 2,
+            line_width: 24,
+        },
+    );
+    check(
+        "match x\n| _ =>\nf(first_argument,second_argument)",
+        "match x\n    | _ =>\n        f(\n            first_argument,\n            second_argument\n        )\n",
+        FormatOptions {
+            indent_width: 4,
+            line_width: 24,
+        },
+    );
+}

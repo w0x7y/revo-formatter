@@ -78,7 +78,16 @@ pub(crate) fn layout(
             && start > 0
             && builder.text(start - 1) == "|"
         {
-            let end = builder.tokens.partition_point(|t| t.start < region.end);
+            let mut end = builder.tokens.partition_point(|t| t.start < region.end);
+            // AST spans may stop inside a lexical envelope. Every delimiter
+            // opened by this arm belongs to it through its matching close.
+            let mut cursor = start;
+            while cursor < end {
+                if let Some(close) = builder.pairs[cursor] {
+                    end = end.max(close + 1);
+                }
+                cursor += 1;
+            }
             builder.arms[start - 1] = Some(end);
         }
     }
@@ -194,13 +203,25 @@ impl<'a> Builder<'a> {
                     arm.push(self.separator(i + 1));
                     arm.push(self.sequence(i + 1, arrow + 1));
                     if arrow + 1 < arm_end {
-                        arm.push(
-                            Doc::concat(vec![
-                                self.separator(arrow + 1),
-                                self.sequence(arrow + 1, arm_end),
-                            ])
-                            .indent(),
-                        );
+                        let body = Doc::concat(vec![
+                            self.separator(arrow + 1),
+                            self.sequence(arrow + 1, arm_end),
+                        ]);
+                        // Inline bodies share the arm's base indentation; their
+                        // delimiters indent the contents. A body starting on the
+                        // next source line receives its own continuation level.
+                        let first_code = (arrow + 1..arm_end)
+                            .find(|&j| {
+                                !matches!(self.tokens[j].kind.as_str(), "comment" | "doc_comment")
+                            })
+                            .unwrap_or(arrow + 1);
+                        let before_body =
+                            &self.source[self.tokens[arrow].end..self.tokens[first_code].start];
+                        arm.push(if before_body.contains('\n') {
+                            body.indent()
+                        } else {
+                            body
+                        });
                     }
                 } else if i + 1 < arm_end {
                     arm.push(self.separator(i + 1));
