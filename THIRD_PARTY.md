@@ -56,5 +56,6 @@ parameter/type coordinates. It compares all other fields, tagged unions,
 optional values, slices and pointed-to contents, with floats compared by bits.
 This establishes syntax equivalence modulo coordinates. Procedural macros
 that inspect positions can observe formatting-induced coordinate changes;
-the bridge never executes those macros. Raw token/comment preservation is a
-separate responsibility of the upcoming formatter.
+the bridge never executes those macros. The Rust formatter separately checks
+one interleaved ordered sequence of raw tokens and comments for exact byte
+preservation before returning a result.

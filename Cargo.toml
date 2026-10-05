@@ -3,6 +3,11 @@ name = "revofmt"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Validated, width-aware formatter for pinned Revo syntax"
+
+[[bin]]
+name = "revofmt"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
