@@ -3,7 +3,7 @@ use crate::{
     FormatOptions,
     document::{self, Doc},
     layout_index::LayoutIndex,
-    oracle::{Analysis, SourceToken},
+    oracle::{AnalyzedSource, SourceToken},
 };
 
 /// Conservative mode retains every gap's empty/nonempty and same/different-line
@@ -11,13 +11,13 @@ use crate::{
 /// lines at one. This preserves all pinned parser whitespace branches; callers
 /// still verify token bytes and the complete AST before using the result.
 pub(crate) fn layout(
-    source: &str,
-    analysis: &Analysis,
+    analysis: &AnalyzedSource<'_>,
     options: &FormatOptions,
     conservative: bool,
 ) -> String {
-    let ending = line_ending(source, &analysis.tokens);
-    if analysis.tokens.is_empty() {
+    let source = analysis.source();
+    let ending = line_ending(source, analysis.tokens());
+    if analysis.tokens().is_empty() {
         return if source.is_empty() {
             String::new()
         } else {
@@ -26,8 +26,8 @@ pub(crate) fn layout(
     }
     let builder = Builder {
         source,
-        tokens: &analysis.tokens,
-        index: LayoutIndex::new(source, analysis),
+        tokens: analysis.tokens(),
+        index: LayoutIndex::new(analysis),
         conservative,
     };
     let doc = Doc::concat(vec![builder.sequence(0, builder.tokens.len()), Doc::Hard]);

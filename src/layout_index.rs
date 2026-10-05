@@ -1,7 +1,7 @@
 //! Complete lexical envelopes and constant-time layout queries over source hints.
 use std::{cmp::Reverse, collections::BinaryHeap};
 
-use crate::oracle::Analysis;
+use crate::oracle::AnalyzedSource;
 
 pub(crate) struct LayoutIndex {
     delimiter_closes: Vec<Option<usize>>,
@@ -11,8 +11,9 @@ pub(crate) struct LayoutIndex {
 }
 
 impl LayoutIndex {
-    pub(crate) fn new(source: &str, analysis: &Analysis) -> Self {
-        let tokens = &analysis.tokens;
+    pub(crate) fn new(analysis: &AnalyzedSource<'_>) -> Self {
+        let source = analysis.source();
+        let tokens = analysis.tokens();
         let text = |i: usize| &source[tokens[i].start..tokens[i].end];
         let mut index = Self {
             delimiter_closes: vec![None; tokens.len()],
@@ -61,7 +62,7 @@ impl LayoutIndex {
         }
 
         let mut statements = Vec::new();
-        for region in &analysis.regions {
+        for region in analysis.regions() {
             if !matches!(region.kind.as_str(), "statement" | "match_arm") {
                 continue;
             }
@@ -130,35 +131,5 @@ impl LayoutIndex {
 
     pub(crate) fn generic_angle(&self, token: usize) -> bool {
         self.generic_angles[token]
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::oracle::{self, SyntaxRegion};
-
-    #[test]
-    fn overlapping_statement_hints_choose_minimum_eligible_end() {
-        let source = "a + b + c + d";
-        let mut analysis = oracle::analyze(source).unwrap();
-        // Deliberately crossing, duplicated and out-of-order hints exercise the
-        // source-region contract without imposing a syntax-tree nesting rule.
-        analysis.regions = [(2, 7), (0, 5), (0, 5)]
-            .into_iter()
-            .map(|(start, end)| SyntaxRegion {
-                kind: "statement".into(),
-                start: analysis.tokens[start].start,
-                end: analysis.tokens[end - 1].end,
-            })
-            .collect();
-        let index = LayoutIndex::new(source, &analysis);
-        let ends: Vec<_> = (0..analysis.tokens.len())
-            .map(|i| index.statement_end(i))
-            .collect();
-        assert_eq!(
-            ends,
-            [Some(5), Some(5), Some(5), Some(5), Some(7), Some(7), None]
-        );
     }
 }

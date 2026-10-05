@@ -1,22 +1,10 @@
-use revofmt::{FormatError, FormatOptions, format};
-
-#[path = "../src/oracle.rs"]
-mod oracle;
+use super::assert_preserved_and_idempotent;
+use crate::{FormatError, FormatOptions, format};
 
 fn check(source: &str, expected: &str, options: FormatOptions) {
     let output = format(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     assert_eq!(output, expected, "source: {source:?}");
-    assert!(oracle::equivalent(source, &output).unwrap());
-    let before = oracle::analyze(source).unwrap();
-    let after = oracle::analyze(&output).unwrap();
-    let tape = |s: &str, a: &oracle::Analysis| {
-        a.tokens
-            .iter()
-            .map(|t| (t.kind.clone(), s[t.start..t.end].to_owned()))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(tape(source, &before), tape(&output, &after));
-    assert_eq!(format(&output, &options).unwrap(), output);
+    assert_preserved_and_idempotent(source, &output, &options);
 }
 
 #[test]
@@ -119,12 +107,12 @@ fn signatures_adjacency_and_ranges() {
 fn opaque_and_record_doc_fixtures() {
     for (source, expected) in [
         (
-            include_str!("fixtures/formatting/opaque.rv"),
-            include_str!("fixtures/formatting/opaque.expected.rv"),
+            include_str!("../../tests/fixtures/formatting/opaque.rv"),
+            include_str!("../../tests/fixtures/formatting/opaque.expected.rv"),
         ),
         (
-            include_str!("fixtures/formatting/record-docs.rv"),
-            include_str!("fixtures/formatting/record-docs.expected.rv"),
+            include_str!("../../tests/fixtures/formatting/record-docs.rv"),
+            include_str!("../../tests/fixtures/formatting/record-docs.expected.rv"),
         ),
     ] {
         check(source, expected, FormatOptions::default());
@@ -451,11 +439,11 @@ fn flat_binary_chain_shares_continuation_indent() {
             .all(|line| line.bytes().take_while(|b| *b == b' ').count() == 2),
         "{output}"
     );
-    check(
-        &source,
-        "let x = value +\n  value +\n  value +\n  value +\n  value +\n  value + value + value\n",
-        options,
+    assert_eq!(
+        output,
+        "let x = value +\n  value +\n  value +\n  value +\n  value +\n  value + value + value\n"
     );
+    assert_preserved_and_idempotent(&source, &output, &options);
 }
 
 #[test]
@@ -475,7 +463,7 @@ fn flat_binary_chain_output_grows_linearly() {
         output.len(),
         source.len()
     );
-    check(&source, &output, options);
+    assert_preserved_and_idempotent(&source, &output, &options);
 }
 
 #[test]
