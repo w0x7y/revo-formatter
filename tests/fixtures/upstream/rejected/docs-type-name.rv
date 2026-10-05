@@ -1,0 +1,3 @@
+pe MyInt = int
+error: type name `MyInt` used as a value
+t x = MyInt

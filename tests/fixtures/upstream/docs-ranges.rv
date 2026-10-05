@@ -1,0 +1,23 @@
+let y = 0
+while y < 5 do
+    y = y + 1
+end
+
+# 0..n produces 0, 1, 2, ..., n-1 (inclusive start, exclusive end)
+let sum = 0
+for i in 0..5 do
+    sum = sum + i
+end
+print(sum) # 15
+
+# three-part range: start..step..end
+for i in 0..2..10 do
+    sum = sum + i
+end # 0, 2, 4, 6, 8
+
+# negative step also works, and open-ended ranges with a negative step
+# use -inf as the sentinel so the loop runs downward forever:
+for i in 10..-2.. do
+    if i < 0 break
+    sum = sum + i
+end # 10, 8, 6, 4, 2

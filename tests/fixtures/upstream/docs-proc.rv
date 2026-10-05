@@ -1,0 +1,8 @@
+proc add3!(iter) do
+  let a = iter:next()
+  let b = iter:next()
+  let c = iter:next()
+  {{:binary, :add, {:binary, :add, a, b}, c}}
+end
+
+print(add3!(10, 20, 12)) # 42

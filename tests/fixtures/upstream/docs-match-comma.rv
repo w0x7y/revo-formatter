@@ -1,0 +1,4 @@
+const r = match 2
+    | 1, 2 => "low"
+    | _    => "high"
+# r == "low"

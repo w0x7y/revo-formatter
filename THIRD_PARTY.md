@@ -7,6 +7,13 @@ Paths under that directory match upstream paths exactly. `REVISION` and
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
 is separately covered by the root `LICENSE`.
 
+`tests/fixtures/upstream/` also contains unchanged examples, documentation
+extracts, and locally formatted expected outputs from that same revision.
+Its [PROVENANCE.md](tests/fixtures/upstream/PROVENANCE.md) enumerates every
+selected input with exact upstream paths and line ranges. The corpus retains
+its own unchanged upstream MIT notice in `LICENSE.txt` and file checksums in
+`SHA256SUMS`.
+
 The 22 Zig files are the relative-file import closure of `Parser.zig`,
 `Lexer.zig`, `ast.zig`, `diagnostic.zig`, and `type_syntax.zig`. Zig resolves
 imports appearing in unused declarations and tests, so source files for those

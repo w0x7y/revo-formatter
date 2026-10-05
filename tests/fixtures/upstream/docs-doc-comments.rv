@@ -1,0 +1,11 @@
+#* named function *#
+fn greet(name) "hi " + name
+
+#* anon assigned to const *#
+const shout = fn(name) name:upper()
+
+#* method-style *#
+fn math:twice(x) x * 2
+
+#* a plain value *#
+const width = 80

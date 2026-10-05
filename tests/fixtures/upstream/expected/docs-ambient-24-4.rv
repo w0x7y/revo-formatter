@@ -1,0 +1,7 @@
+declare lamp = fn(
+    volume: number,
+    label: string
+) -> bool
+
+fn louder() -> bool
+lamp(11, "kitchen")

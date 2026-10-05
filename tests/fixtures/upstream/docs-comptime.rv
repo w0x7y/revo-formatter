@@ -1,0 +1,4 @@
+const LIMIT = comp (1024 * 1024)
+print(comp ("prefix_" ~ "suffix")) # prefix_suffix
+print(comp (1 < 2))                # :true
+print(comp (1 + 2))                # only runs at compilation time

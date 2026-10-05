@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Validated, width-aware formatter for pinned Revo syntax"
+exclude = [".tools/**", ".superpowers/**", "graft/**"]
 
 [[bin]]
 name = "revofmt"

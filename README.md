@@ -83,7 +83,10 @@ Defaults are two spaces per indentation level and 80 display columns.
 Width is a soft target. Long literals, comments, and syntax that cannot safely
 break can exceed it. The formatter can retain compact spacing through its
 validated conservative fallback. Existing statement newlines are hard
-boundaries; pipe chains do not receive independent reflow.
+boundaries; pipe chains do not receive independent reflow. Expression bodies
+without `do` stay at statement indentation even after a source newline.
+Continuation layouts can be awkward or exceed the target; unary signs and
+labeled `do` spacing receive only basic normalization.
 
 Print mode accepts one input. `--check` also accepts stdin, including when
 no input is specified. `--write` requires file paths and rejects stdin,
@@ -156,3 +159,21 @@ Formatting procedural macros is allowed. Macros that inspect offsets, lines,
 or columns can observe formatting-induced position changes. The guarantee is
 syntax equivalence modulo those coordinates, so such macros can produce
 different results after formatting.
+
+## Tested upstream corpus
+
+The [vendored corpus provenance](tests/fixtures/upstream/PROVENANCE.md) lists
+20 valid inputs from the same pinned revision: six complete `.rv` examples
+and fourteen self-contained documentation snippets. It also lists one
+malformed upstream documentation fence, which is tested as a syntax rejection.
+The valid fixtures include the demo, pipes, procedural macros, types, control
+flow, match arms, multiline literals and comments.
+
+Each valid input is checked at line widths 24, 80 and 120 with indent widths
+2 and 4, giving 120 input/option combinations. Separate assertions check
+reparsing, exact interleaved raw token/comment bytes, complete AST equivalence
+modulo coordinates, and idempotence. Four reviewed expected outputs check
+actual signature/table reflow, block indentation and match-arm layout.
+Negative controls cover malformed sources, whitespace-sensitive calls,
+comment movement and literal respelling. This is a bounded regression corpus;
+it does not establish exhaustive syntax coverage or uniform layout quality.
