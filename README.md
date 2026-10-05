@@ -170,10 +170,16 @@ The valid fixtures include the demo, pipes, procedural macros, types, control
 flow, match arms, multiline literals and comments.
 
 Each valid input is checked at line widths 24, 80 and 120 with indent widths
-2 and 4, giving 120 input/option combinations. Separate assertions check
-reparsing, exact interleaved raw token/comment bytes, complete AST equivalence
-modulo coordinates, and idempotence. Four reviewed expected outputs check
-actual signature/table reflow, block indentation and match-arm layout.
+2 and 4, giving 120 input/option combinations. Each combination produces one
+formatter result, checked for reparsing, exact
+interleaved raw token/comment bytes, complete AST equivalence modulo coordinates,
+and idempotence. Four of those same results also check reviewed expected output
+for signature/table reflow, block indentation and match-arm layout. The private
+preservation and corpus tests run once in library test modules; process-level
+CLI checks remain integration tests.
 Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
+
+See [architecture verification](docs/verification/architecture-deepening.md)
+for test counts, package checks and measured indexing results.

@@ -2,7 +2,8 @@
 use crate::{
     FormatOptions,
     document::{self, Doc},
-    oracle::{Analysis, SourceToken},
+    layout_index::LayoutIndex,
+    oracle::{AnalyzedSource, SourceToken},
 };
 
 /// Conservative mode retains every gap's empty/nonempty and same/different-line
@@ -10,87 +11,25 @@ use crate::{
 /// lines at one. This preserves all pinned parser whitespace branches; callers
 /// still verify token bytes and the complete AST before using the result.
 pub(crate) fn layout(
-    source: &str,
-    analysis: &Analysis,
+    analysis: &AnalyzedSource<'_>,
     options: &FormatOptions,
     conservative: bool,
 ) -> String {
-    let ending = line_ending(source, &analysis.tokens);
-    if analysis.tokens.is_empty() {
+    let source = analysis.source();
+    let ending = line_ending(source, analysis.tokens());
+    if analysis.tokens().is_empty() {
         return if source.is_empty() {
             String::new()
         } else {
             ending.to_owned()
         };
     }
-    let mut builder = Builder {
+    let builder = Builder {
         source,
-        tokens: &analysis.tokens,
-        pairs: vec![None; analysis.tokens.len()],
-        arms: vec![None; analysis.tokens.len()],
-        statements: Vec::new(),
-        generic_angles: vec![false; analysis.tokens.len()],
+        tokens: analysis.tokens(),
+        index: LayoutIndex::new(analysis),
         conservative,
     };
-    let mut stack = Vec::new();
-    for i in 0..builder.tokens.len() {
-        match builder.text(i) {
-            "(" | "{" | "[" | "do" => stack.push(i),
-            ")" | "}" | "]" | "end" => {
-                if let Some(open) = stack.pop()
-                    && matches!(
-                        (builder.text(open), builder.text(i)),
-                        ("(", ")") | ("{", "}") | ("[", "]") | ("do", "end")
-                    )
-                {
-                    builder.pairs[open] = Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    // Preserve generic-call lookahead shapes, including nonadjacent receivers
-    // such as `f <T>(x)` which deliberately parse as comparisons.
-    for open in 0..builder.tokens.len() {
-        if builder.text(open) != "<" {
-            continue;
-        }
-        for close in open + 1..(open + 33).min(builder.tokens.len()) {
-            if builder.text(close) == ">" {
-                builder.generic_angles[open] = true;
-                builder.generic_angles[close] = true;
-                break;
-            }
-            if builder.tokens[close].kind != "ident" && builder.text(close) != "," {
-                break;
-            }
-        }
-    }
-    // Regions bound statements and identify match arms; tokens own every byte.
-    for region in &analysis.regions {
-        if region.kind == "statement" {
-            let start = builder.tokens.partition_point(|t| t.start < region.start);
-            let end = builder.tokens.partition_point(|t| t.start < region.end);
-            builder.statements.push((start, end));
-        }
-        if region.kind == "match_arm"
-            && let Some(start) = builder.tokens.iter().position(|t| t.start == region.start)
-            && start > 0
-            && builder.text(start - 1) == "|"
-        {
-            let mut end = builder.tokens.partition_point(|t| t.start < region.end);
-            // AST spans may stop inside a lexical envelope. Every delimiter
-            // opened by this arm belongs to it through its matching close.
-            let mut cursor = start;
-            while cursor < end {
-                if let Some(close) = builder.pairs[cursor] {
-                    end = end.max(close + 1);
-                }
-                cursor += 1;
-            }
-            builder.arms[start - 1] = Some(end);
-        }
-    }
     let doc = Doc::concat(vec![builder.sequence(0, builder.tokens.len()), Doc::Hard]);
     document::render(&doc, options.indent_width, options.line_width, ending)
 }
@@ -120,10 +59,7 @@ fn line_ending(source: &str, tokens: &[SourceToken]) -> &'static str {
 struct Builder<'a> {
     source: &'a str,
     tokens: &'a [SourceToken],
-    pairs: Vec<Option<usize>>,
-    arms: Vec<Option<usize>>,
-    statements: Vec<(usize, usize)>,
-    generic_angles: Vec<bool>,
+    index: LayoutIndex,
     conservative: bool,
 }
 impl<'a> Builder<'a> {
@@ -163,8 +99,8 @@ impl<'a> Builder<'a> {
         if right == "("
             || matches!(left, ".." | "/")
             || right == ".."
-            || self.generic_angles[i - 1]
-            || self.generic_angles[i]
+            || self.index.generic_angle(i - 1)
+            || self.index.generic_angle(i)
         {
             return Doc::Text(if gap.is_empty() { "" } else { " " });
         }
@@ -188,15 +124,52 @@ impl<'a> Builder<'a> {
     }
     fn sequence(&self, start: usize, end: usize) -> Doc<'a> {
         let mut parts = Vec::new();
+        let mut segment = start;
+        let mut i = start;
+        while i < end {
+            if let Some(close) = self.index.delimiter_close(i).filter(|close| *close < end) {
+                i = close + 1;
+            } else if let Some(stop) = self
+                .index
+                .arm_end(i)
+                .filter(|stop| *stop <= end && *stop > i)
+            {
+                i = stop;
+            } else {
+                // Adjacent list items and explicit statements own independent
+                // continuations. Keep punctuation with the preceding item.
+                if matches!(self.text(i), "," | ";") {
+                    parts.push(self.expression_segment(segment, i + 1, false));
+                    if i + 1 < end {
+                        parts.push(self.separator(i + 1));
+                    }
+                    segment = i + 1;
+                }
+                i += 1;
+            }
+        }
+        if segment < end {
+            parts.push(self.expression_segment(segment, end, false));
+        }
+        Doc::concat(parts).group()
+    }
+    // Only recursive binary suffixes share a continuation level. Delimiters and
+    // arm bodies call sequence and establish their own expression scope.
+    fn expression_segment(&self, start: usize, end: usize, continuation: bool) -> Doc<'a> {
+        let mut parts = Vec::new();
         let mut i = start;
         while i < end {
             if i > start {
                 parts.push(self.separator(i));
             }
-            if let Some(close) = self.pairs[i].filter(|close| *close < end) {
+            if let Some(close) = self.index.delimiter_close(i).filter(|close| *close < end) {
                 parts.push(self.delimited(i, close));
                 i = close + 1;
-            } else if let Some(arm_end) = self.arms[i].filter(|stop| *stop <= end && *stop > i) {
+            } else if let Some(arm_end) = self
+                .index
+                .arm_end(i)
+                .filter(|stop| *stop <= end && *stop > i)
+            {
                 let arrow = (i + 1..arm_end).find(|&j| self.text(j) == "=>");
                 let mut arm = vec![Doc::Text(self.text(i))];
                 if let Some(arrow) = arrow {
@@ -233,14 +206,7 @@ impl<'a> Builder<'a> {
                 parts.push(Doc::Text(self.text(i)));
                 // Limit continuations to a source-backed statement. Parentheses
                 // and lists further bound the range in recursive calls.
-                let stop = self
-                    .statements
-                    .iter()
-                    .filter(|&&(a, b)| a <= i && b > i + 1)
-                    .map(|&(_, b)| b)
-                    .min()
-                    .unwrap_or(end)
-                    .min(end);
+                let stop = self.index.statement_end(i).unwrap_or(end).min(end);
                 let separator = if self.gap(i + 1).contains('\n') {
                     self.breaks(i + 1)
                 } else {
@@ -248,10 +214,15 @@ impl<'a> Builder<'a> {
                 };
                 // Fit this continuation against the columns remaining after
                 // its operator, independently of hard breaks in other statements.
+                let suffix =
+                    Doc::concat(vec![separator, self.expression_segment(i + 1, stop, true)]);
                 parts.push(
-                    Doc::concat(vec![separator, self.sequence(i + 1, stop)])
-                        .indent()
-                        .group(),
+                    if continuation {
+                        suffix
+                    } else {
+                        suffix.indent()
+                    }
+                    .group(),
                 );
                 i = stop;
             } else {

@@ -1,22 +1,10 @@
-use revofmt::{FormatError, FormatOptions, format};
-
-#[path = "../src/oracle.rs"]
-mod oracle;
+use super::assert_preserved_and_idempotent;
+use crate::{FormatError, FormatOptions, format};
 
 fn check(source: &str, expected: &str, options: FormatOptions) {
     let output = format(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
     assert_eq!(output, expected, "source: {source:?}");
-    assert!(oracle::equivalent(source, &output).unwrap());
-    let before = oracle::analyze(source).unwrap();
-    let after = oracle::analyze(&output).unwrap();
-    let tape = |s: &str, a: &oracle::Analysis| {
-        a.tokens
-            .iter()
-            .map(|t| (t.kind.clone(), s[t.start..t.end].to_owned()))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(tape(source, &before), tape(&output, &after));
-    assert_eq!(format(&output, &options).unwrap(), output);
+    assert_preserved_and_idempotent(source, &output, &options);
 }
 
 #[test]
@@ -119,12 +107,12 @@ fn signatures_adjacency_and_ranges() {
 fn opaque_and_record_doc_fixtures() {
     for (source, expected) in [
         (
-            include_str!("fixtures/formatting/opaque.rv"),
-            include_str!("fixtures/formatting/opaque.expected.rv"),
+            include_str!("../../tests/fixtures/formatting/opaque.rv"),
+            include_str!("../../tests/fixtures/formatting/opaque.expected.rv"),
         ),
         (
-            include_str!("fixtures/formatting/record-docs.rv"),
-            include_str!("fixtures/formatting/record-docs.expected.rv"),
+            include_str!("../../tests/fixtures/formatting/record-docs.rv"),
+            include_str!("../../tests/fixtures/formatting/record-docs.expected.rv"),
         ),
     ] {
         check(source, expected, FormatOptions::default());
@@ -374,4 +362,157 @@ fn call_arm_delimiters_compose_with_reflow() {
             line_width: 24,
         },
     );
+}
+
+#[test]
+fn statement_rhs_envelopes_compose_indentation() {
+    for (source, expected) in [
+        (
+            "let x=first_argument+do\nf()\nend\nlet y=2",
+            "let x = first_argument +\n  do\n    f()\n  end\nlet y = 2\n",
+        ),
+        (
+            "let x=first_argument+do\ndo\nf()\nend\nend\nlet y=2",
+            "let x = first_argument +\n  do\n    do\n      f()\n    end\n  end\nlet y = 2\n",
+        ),
+        (
+            "let x=first_argument+{\na=1,\nb=2\n}\nlet y=2",
+            "let x = first_argument +\n  {\n    a = 1,\n    b = 2\n  }\nlet y = 2\n",
+        ),
+        (
+            "let x=first_argument+(\nsecond_argument\n)\nlet y=2",
+            "let x = first_argument +\n  (\n    second_argument\n  )\nlet y = 2\n",
+        ),
+        (
+            "do\nlet x=first_argument+(\nsecond_argument\n) # rhs\nlet y=2\nend\nlet z=3",
+            "do\n  let x = first_argument +\n    (\n      second_argument\n    ) # rhs\n  let y = 2\nend\nlet z = 3\n",
+        ),
+        (
+            "do\nmatch x\n| 1 => first_argument+do\nf()\nend\n| _ => second_argument+(\ng()\n)\nend\nlet y=2",
+            "do\n  match x\n    | 1 => first_argument +\n      do\n        f()\n      end\n    | _ => second_argument +\n      (\n        g()\n      )\nend\nlet y = 2\n",
+        ),
+    ] {
+        for indent_width in [2, 4] {
+            let expected = expected
+                .lines()
+                .map(|line| {
+                    let spaces = line.len() - line.trim_start().len();
+                    format!(
+                        "{}{}\n",
+                        " ".repeat(spaces / 2 * indent_width),
+                        line.trim_start()
+                    )
+                })
+                .collect::<String>();
+            for line_width in [24, 80] {
+                check(
+                    source,
+                    &expected,
+                    FormatOptions {
+                        indent_width,
+                        line_width,
+                    },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flat_binary_chain_shares_continuation_indent() {
+    let options = FormatOptions {
+        line_width: 24,
+        ..FormatOptions::default()
+    };
+    let source = format!(
+        "let x={}",
+        std::iter::repeat_n("value", 8)
+            .collect::<Vec<_>>()
+            .join("+")
+    );
+    let output = format(&source, &options).unwrap();
+    assert!(output.lines().count() > 1);
+    assert!(
+        output
+            .lines()
+            .skip(1)
+            .all(|line| line.bytes().take_while(|b| *b == b' ').count() == 2),
+        "{output}"
+    );
+    assert_eq!(
+        output,
+        "let x = value +\n  value +\n  value +\n  value +\n  value +\n  value + value + value\n"
+    );
+    assert_preserved_and_idempotent(&source, &output, &options);
+}
+
+#[test]
+fn flat_binary_chain_output_grows_linearly() {
+    let options = FormatOptions {
+        line_width: 20,
+        ..FormatOptions::default()
+    };
+    let source = format!(
+        "let x={}",
+        std::iter::repeat_n("1", 800).collect::<Vec<_>>().join("+")
+    );
+    let output = format(&source, &options).unwrap();
+    assert!(
+        output.len() <= source.len() * 8,
+        "{} output bytes for {} source bytes",
+        output.len(),
+        source.len()
+    );
+    assert_preserved_and_idempotent(&source, &output, &options);
+}
+
+#[test]
+fn binary_continuations_end_before_adjacent_list_items() {
+    check(
+        "f(first_argument+second_argument,third_argument+fourth_argument)",
+        "f(\n  first_argument +\n    second_argument,\n  third_argument +\n    fourth_argument\n)\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn binary_segments_compose_with_nested_scopes_and_hard_breaks() {
+    for (source, expected) in [
+        (
+            "let x=first_argument+second_argument*third_argument-fourth_argument/last_argument\nlet y=1+2",
+            "let x = first_argument +\n  second_argument *\n  third_argument -\n  fourth_argument /\n  last_argument\nlet y = 1 + 2\n",
+        ),
+        (
+            "let x=first_argument+(second_argument+third_argument)+last_argument\nlet y=2",
+            "let x = first_argument +\n  (\n    second_argument +\n      third_argument\n  ) + last_argument\nlet y = 2\n",
+        ),
+        (
+            "do\nf(first_argument+second_argument,{third_argument+fourth_argument,fifth_argument+sixth_argument})\nlet y=2\nend",
+            "do\n  f(\n    first_argument +\n      second_argument,\n    {\n      third_argument +\n        fourth_argument,\n      fifth_argument +\n        sixth_argument\n    }\n  )\n  let y = 2\nend\n",
+        ),
+        (
+            "let x=first_argument+ # note\nsecond_argument+\nthird_argument+fourth_argument\nlet y=2",
+            "let x = first_argument +\n  # note\n  second_argument +\n  third_argument +\n  fourth_argument\nlet y = 2\n",
+        ),
+        (
+            "match x\n| 1 => first_argument+second_argument+third_argument\n| _ => fourth_argument+fifth_argument+sixth_argument",
+            "match x\n  | 1 => first_argument +\n    second_argument +\n    third_argument\n  | _ => fourth_argument +\n    fifth_argument +\n    sixth_argument\n",
+        ),
+        (
+            "let x=first_argument+second_argument;let y=third_argument+fourth_argument",
+            "let x = first_argument +\n  second_argument; let y = third_argument +\n  fourth_argument\n",
+        ),
+    ] {
+        check(
+            source,
+            expected,
+            FormatOptions {
+                line_width: 24,
+                ..FormatOptions::default()
+            },
+        );
+    }
 }
