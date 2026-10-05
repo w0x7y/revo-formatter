@@ -2,6 +2,8 @@
 
 Inspected 2026-10-05. Upstream is `https://github.com/if-not-nil/revo.git`, clean checkout at `b571298b6fc95bc863548f118354c8d077792f6f`, commit dated 2026-10-05. All source paths and line numbers below refer to that revision under `/tmp/revo-formatter-upstream`. The pinned [lexer](https://github.com/if-not-nil/revo/blob/b571298b6fc95bc863548f118354c8d077792f6f/src/lang/Lexer.zig) was also fetched from GitHub's raw endpoint. The local source is the evidence for the detailed findings; this note does not claim those rules remain unchanged at future revisions.
 
+The frontend toolchain pin is the official stable **Zig 0.17.0** release, not a development build or a floating minimum-version constraint. Its standard library implements `std.zig.string_literal.parseEscapeSequence`, called at `Lexer.zig:700`, `859`, and `1003`, so it is part of the literal-decoding dependency. Upstream requests 0.17.0 at `README.md:31` and `build.zig.zon:5`. The [official download index](https://ziglang.org/download/index.json), verified 2026-10-05, lists release date 2026-10-01. For this Linux x86_64 workspace, the exact archive is `zig-x86_64-linux-0.17.0.tar.xz`, SHA-256 `1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026`. Other build hosts must pin their corresponding official 0.17.0 archive and checksum. This report records the intended dependency; no validator was built or tested here.
+
 The formatter must retain concrete source structure. Revo's AST is already desugared and does not retain parentheses, ordinary comments, original string quoting, or all literal spellings. Equal token kinds and text alone do not establish equal syntax because the parser reads source adjacency and token lines.
 
 ## All parser decisions involving whitespace
@@ -70,10 +72,20 @@ The comment scanner at `Lexer.zig:567-633` recognizes:
 
 - `#` to LF as an ordinary line comment.
 - `## ... ##` as an ordinary block comment, ending at the first closing pair, without nesting.
-- `#* ... *#` as a declaration doc token. The parser attaches its trimmed body to the next declaration or method definition at `Parser.zig:632-654`.
+- `#* ... *#` as a doc token. The expression parser attaches its trimmed body to the next declaration or method definition at `Parser.zig:632-654`. The type parser also consumes it before named, optional, and positional record fields, trims the body, and stores `RecordField.doc` at `type_syntax.zig:191-225`. Repeated field docs overwrite the pending doc, so the last one determines that field's semantic doc value.
 - `#! ... !#` as a module doc token. It must precede the first noncomment token, or lexing fails with `LateModuleDoc` at `Lexer.zig:596-610`.
 
 Preserve complete comment bytes and ordering. A newline terminating a line comment must remain a newline. Doc/module token spans cover body text rather than the whole delimiter pair at `590`, `606`, so token start/end ranges alone do not recover the concrete comment. Doc attachment is syntax, not trivia.
+
+Include this record-field fixture in preservation tests, checking each field's doc and optionality as well as complete source bytes:
+
+```revo
+type Fields = {
+  #* display name *# name: string,
+  #* older note *# #* current note *# ?count: int,
+  #* positional value *# number
+}
+```
 
 The examples use `#!/usr/bin/env revo` as the opening of a module-doc block, closed later by `!#`, for example `examples/demo.rv:1-6`, `examples/pipes.rv:1-9`, and `examples/proc.rv:1-27`. The pinned lexer has no independent shebang exemption. Treating that first line as an ordinary standalone shebang would misread the intervening prose.
 
@@ -104,13 +116,27 @@ Preserve parentheses in a concrete formatter. Assignment and compound assignment
 
 The clearest explicit indentation setting is two spaces in the Helix configuration at [docs/editors.md:147](https://github.com/if-not-nil/revo/blob/b571298b6fc95bc863548f118354c8d077792f6f/docs/editors.md#L147). `examples/demo.rv:12-28` also uses two spaces. The language guide mixes styles. A read-only count over its 684 nonblank Revo fenced-code lines found raw leading-space widths `2:52`, `3:2`, `4:146`, `6:12`, `8:18`, plus 6 lines with tabs. Some four-space fences have an outer Markdown list margin, so those are not nesting-depth measurements. No source-formatting width default was found in README, CONTRIBUTING, or Markdown docs; the longest guide snippet line was 88 characters. Two spaces is source-backed; 80 or 100 columns would be a formatter design choice.
 
-For a Rust CLI/library, a conservative whitespace-only rewrite can preserve every gap's empty/nonempty state, every LF sequence/count, and all concrete nonwhitespace token/comment/literal bytes. With a lexer matching upstream, those constraints preserve every parser branch listed above at this revision: offset equalities retain their truth values, lines stay equal or unequal, and opaque strings retain decoded values. This is a source-derived safety argument, not a guarantee that a new scanner is correct. Such a formatter cannot fulfill unrestricted line-width wrapping because it cannot add/remove semantic line breaks or adjacency. Width should be a soft limit when syntax/literals prevent safe breaks.
+For a Rust CLI/library, a conservative whitespace-only rewrite can preserve every gap's empty/nonempty state, every LF sequence/count, and all concrete nonwhitespace token/comment/literal bytes. With a lexer matching upstream, those constraints preserve every parser branch listed above at this revision: offset equalities retain their truth values, lines stay equal or unequal, and opaque strings retain decoded values. This is a source-derived argument for syntax equivalence modulo positions, not full behavioral equivalence or a guarantee that a new scanner is correct. Such a formatter cannot fulfill unrestricted line-width wrapping because it cannot add/remove semantic line breaks or adjacency. Width should be a soft limit when syntax/literals prevent safe breaks.
 
 Full reflow needs stronger validation:
 
-1. Validate original and candidate with the pinned upstream pure frontend, `Parser.parseSourceReport` at `82-121`, `124-172`, using the same options. Its `.err` report includes recovery diagnostics; a returned/recovered AST alone is not success.
-2. Compare complete AST structure after removing source coordinates, while retaining semantic fields such as `implicit_self`, float kind, optional/default parameters, generic arguments, doc text, attributes, skipped tests, labels, and declaration kinds. An AST debug print is not a complete structural fingerprint: `ast.zig:644-662` omits optional/default parameter information, and prints are desugared forms.
+1. Validate original and candidate with the pinned Revo revision and exact Zig 0.17.0 stable toolchain above, using `Parser.parseSourceReport` at `82-121`, `124-172` with the same options. Both `.err` reports and returned Zig errors are failures; a returned/recovered AST alone is not success.
+2. Compare complete AST structure, retaining semantic fields such as `implicit_self`, float kind, optional/default parameters, generic arguments, declaration and record-field doc text/optionality, attributes, skipped tests, labels, and declaration kinds. Include `Node.synthetic_block`, which is outside `Expr` at `ast.zig:485-488`; the parser sets it for implicit top-level and grouped-import blocks at `Parser.zig:215`, `1237`, and prelude merging reads it to decide block flattening at `pipeline.zig:506-513`. Define any coordinate exclusions by exact field/type rather than deleting all numeric fields. A comparison excluding coordinates establishes only syntax equivalence modulo positions and needs the macro-coordinate policy below before serving as a behavior-preservation gate. An AST debug print is not a complete structural fingerprint: `ast.zig:644-662` omits optional/default parameter information, and prints are desugared forms.
 3. Independently require exact original literal/comment bytes and retained concrete token spelling/order if the formatter's contract is whitespace-only. AST equality alone cannot protect ordinary comments, quote choices, parentheses, or numeric spellings.
 4. Require idempotence, valid UTF-8/byte-offset handling, complete-input consumption, and non-destructive failure on unknown or malformed lexing. Test the distinctions above, comment-adjacent calls, single-expression anonymous functions, multiline/interpolated strings, labels, generics, and open ranges. Use upstream example fixtures as well as small isolated cases.
 
-Frontend parsing avoids import resolution and compile-time execution. Compiling/executing arbitrary user code as a formatting check can run procedural macros and `comp` expressions; docs describe those at `docs/docs.md:1501-1503`, `1523-1526`. Source-coordinate changes are expected formatting effects, so structural equivalence should exclude spans and diagnostic positions. A guarantee about all runtime introspection output is broader than this parser-safety argument.
+Frontend parsing avoids import resolution and compile-time execution. Compiling/executing arbitrary user code as a formatting check can run procedural macros and `comp` expressions; docs describe those at `docs/docs.md:1501-1503`, `1523-1526`.
+
+## Macro-visible coordinates and accepted policy
+
+Source coordinates are not exclusively diagnostic at this revision. `FnParam.name_span` and `TypeExpr.span` occur inside expression payloads at `ast.zig:303-305`, `65-67`. Proc macro `encodePayload` and `encodeValue` recursively serialize struct fields at `macro_proc.zig:501-517`, `526-594`. The special `*Node` handling at `551` serializes its expression rather than its outer node span, but the struct branch at `583-592` has no span exemption. Nested coordinate fields therefore become data available to user macros. Quasiquote inner positions are anchored to the backtick token position at `Parser.zig:1285-1293`; opaque template contents alone do not protect their absolute positions when preceding text changes.
+
+The independent [parser architecture review](parser-architecture-review.md) reports executing this program with the matching installed Revo and obtaining `86`:
+
+```revo
+proc offset!(iter) do let f = iter:next(); {{:number, f[1][0][1][0]}} end; offset!(fn(x) x)
+```
+
+Changing only `fn(x)` to `fn(  x)` reportedly returned `88`, because the macro reads the parameter name's byte offset. This inventory verified the serializer source path but did not repeat runtime execution. The token spellings and AST structure excluding spans remain equal while behavior changes.
+
+The user explicitly accepted: "Allow formatting; preserve syntax and document source-position changes as normal formatting effects." The formatter's contract is therefore syntax equivalence modulo positions, with the macro-coordinate limitation above documented as an accepted formatting effect. A comparator that discards spans supports that contract; it does not establish full behavioral equivalence for programs that inspect those coordinates.
