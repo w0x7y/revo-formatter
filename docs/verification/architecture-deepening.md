@@ -19,10 +19,11 @@ fallback, FFI ownership and coordinate policy are unchanged.
 | --- | --- |
 | Task 1, `layout_task_review` | Approved, no findings |
 | Task 2, `bridge_task_review` | Approved, no findings |
-| Task 3 | Independent review pending |
+| Task 3, `preservation_task_review` | Approved, no findings |
 | Whole change | Final independent review pending |
 
-This record reports implementation verification, not approval of the pending gates.
+All three task reviews approved spec compliance and quality with no findings.
+The final whole-change review remains pending.
 
 ## Tests and package checks
 
@@ -68,7 +69,9 @@ zig test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter ind
 zig fmt --check bridge.zig bridge/compare.zig bridge/frontend.zig bridge/source.zig
 ```
 
-All pass. Packaging verifies an extracted-source build; extracted library test
+All pass. The controller independently reran the Rust and Zig suites, formatting,
+clippy, release build, checksum manifests and focused Zig-absent layout probes on
+`c251ebf7`; all passed. Packaging verifies an extracted-source build; extracted library test
 modules and fixture includes also compile. The 99 archive inputs contain all new Rust
 modules and attributed fixtures, and exclude worktrees, agent scratch, local
 tools and graph caches. The package has no source-path or scratch dependency.
