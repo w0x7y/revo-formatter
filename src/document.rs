@@ -7,7 +7,14 @@ pub(crate) enum Doc<'a> {
     Hard,
     Indent(Box<Doc<'a>>),
     Concat(Vec<Doc<'a>>),
-    Group(Box<Doc<'a>>),
+    Group(Group<'a>),
+}
+
+// Constructed only by Doc::group: the document and cached measurement always
+// travel together, and neither can be independently changed by a caller.
+pub(crate) struct Group<'a> {
+    inner: Box<Doc<'a>>,
+    flat_width: Option<usize>,
 }
 
 impl<'a> Doc<'a> {
@@ -18,7 +25,11 @@ impl<'a> Doc<'a> {
         Self::Indent(Box::new(self))
     }
     pub(crate) fn group(self) -> Self {
-        Self::Group(Box::new(self))
+        let flat_width = self.flat_width();
+        Self::Group(Group {
+            inner: Box::new(self),
+            flat_width,
+        })
     }
 
     fn flat_width(&self) -> Option<usize> {
@@ -27,7 +38,8 @@ impl<'a> Doc<'a> {
             Self::Text(s) => Some(s.width()),
             Self::Soft(s) => Some(s.width()),
             Self::Hard => None,
-            Self::Indent(d) | Self::Group(d) => d.flat_width(),
+            Self::Indent(d) => d.flat_width(),
+            Self::Group(group) => group.flat_width,
             Self::Concat(parts) => parts
                 .iter()
                 .try_fold(0usize, |n, d| n.checked_add(d.flat_width()?)),
@@ -80,16 +92,16 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
                         self.write(part, depth, flat);
                     }
                 }
-                Doc::Group(inner) => {
+                Doc::Group(group) => {
                     let column = if self.pending_indent {
                         depth * self.indent_width
                     } else {
                         self.column
                     };
-                    let fits = inner
-                        .flat_width()
+                    let fits = group
+                        .flat_width
                         .is_some_and(|n| n <= self.width.saturating_sub(column));
-                    self.write(inner, depth, flat || fits);
+                    self.write(&group.inner, depth, flat || fits);
                 }
             }
         }
