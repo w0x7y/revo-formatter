@@ -203,6 +203,98 @@ fn malformed_input_never_prints_or_changes_files() {
 }
 
 #[test]
+fn excessive_syntax_returns_an_error_without_output_or_writes() {
+    let deep = format!("{}1{}", "(".repeat(3000), ")".repeat(3000));
+    let sources = [
+        deep.clone(),
+        format!("{}1", "(".repeat(3000)),
+        format!("{}1", "not ".repeat(3000)),
+        std::iter::repeat_n("1", 6000).collect::<Vec<_>>().join("+"),
+        std::iter::repeat_n("1", 1500).collect::<Vec<_>>().join("%"),
+        std::iter::repeat_n("1", 1500).collect::<Vec<_>>().join(">"),
+        format!("\"value #{{{deep}}}\""),
+        format!("`{deep}`"),
+        format!("a{}", ".field".repeat(4000)),
+        format!("a{}", ".f".repeat(1500)),
+        format!("a{}", ":f()".repeat(760)),
+        format!(
+            "{}{}",
+            "match x | _ => ".repeat(330),
+            std::iter::repeat_n("1", 799).collect::<Vec<_>>().join("+")
+        ),
+    ];
+    let dir = TempDir::new();
+    let first = dir.file("first.rv", "let x=1");
+    let bad = dir.file("complex.rv", "");
+    let mut failures = Vec::new();
+    for (index, source) in sources.iter().enumerate() {
+        let output = run(&[], source);
+        if output.status.code() != Some(2)
+            || !output.stdout.is_empty()
+            || !String::from_utf8_lossy(&output.stderr).contains("input complexity limit")
+        {
+            failures.push(format!(
+                "case {index}: {:?}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        fs::write(&bad, source).unwrap();
+        let output = invoke(
+            &[OsStr::new("--write"), first.as_os_str(), bad.as_os_str()],
+            "",
+        );
+        if output.status.code() != Some(2) || !output.stdout.is_empty() {
+            failures.push(format!("write case {index}: {:?}", output.status));
+        }
+        assert_eq!(
+            fs::read(&first).unwrap(),
+            b"let x=1",
+            "{}",
+            failures.join("\n")
+        );
+        assert_eq!(fs::read_to_string(&bad).unwrap(), *source);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
+}
+
+#[test]
+fn bounded_reads_reject_oversized_utf8_without_output_or_batch_writes() {
+    // The last permitted read byte lands in the middle of this UTF-8 character.
+    let oversized = "é".repeat(revofmt::MAX_SOURCE_BYTES / 2 + 1);
+    let output = run(&[], &oversized);
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("source bytes"));
+    let dir = TempDir::new();
+    let first = dir.file("first.rv", "let x=1");
+    let bad = dir.file("large.rv", &oversized);
+    let output = invoke(
+        &[OsStr::new("--write"), first.as_os_str(), bad.as_os_str()],
+        "",
+    );
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("source bytes"));
+    assert_eq!(fs::read(&first).unwrap(), b"let x=1");
+    assert_eq!(fs::read_to_string(&bad).unwrap(), oversized);
+    let stable = format!("'{}'\n", "x".repeat(revofmt::MAX_SOURCE_BYTES - 3));
+    let boundary = dir.file("boundary.rv", &stable);
+    status(
+        &invoke(&[OsStr::new("--check"), boundary.as_os_str()], ""),
+        0,
+    );
+    let no_space_for_newline = format!("'{}'", "x".repeat(revofmt::MAX_SOURCE_BYTES - 2));
+    fs::write(&boundary, &no_space_for_newline).unwrap();
+    let output = invoke(&[boundary.as_os_str()], "");
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("source bytes"));
+    assert_eq!(fs::read_to_string(&boundary).unwrap(), no_space_for_newline);
+}
+
+#[test]
 fn multi_write_prevalidates_every_input() {
     let dir = TempDir::new();
     let first = dir.file("first.rv", "let x=1");

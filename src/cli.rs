@@ -1,4 +1,4 @@
-use revofmt::{FormatOptions, UPSTREAM_REVISION, format};
+use revofmt::{FormatOptions, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
 use std::{
     ffi::OsString,
     fs::{self, File, OpenOptions, Permissions},
@@ -173,15 +173,30 @@ fn input_name(path: &Path) -> String {
 
 fn read_and_format(path: &Path, options: &FormatOptions) -> Result<(String, String), String> {
     let source = if path == Path::new("-") {
-        let mut source = String::new();
-        io::stdin().read_to_string(&mut source).map(|_| source)
+        read_source(io::stdin().lock())
     } else {
-        fs::read_to_string(path)
+        File::open(path).and_then(read_source)
     }
     .map_err(|error| format!("{}: {error}", input_name(path)))?;
     let formatted =
         format(&source, options).map_err(|error| format!("{}: {error}", input_name(path)))?;
     Ok((source, formatted))
+}
+
+fn read_source(reader: impl Read) -> io::Result<String> {
+    // Read one extra byte to distinguish an exact-sized input from truncation.
+    // Decode only after the size check, so a split UTF-8 sequence is a size error.
+    let mut bytes = Vec::new();
+    reader
+        .take((MAX_SOURCE_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("input complexity limit exceeded: source bytes ({MAX_SOURCE_BYTES})"),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 fn regular_file_permissions(path: &Path) -> Result<Permissions, String> {

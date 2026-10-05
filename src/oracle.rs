@@ -85,6 +85,7 @@ impl<'a> AnalyzedSource<'a> {
     }
 
     pub(crate) fn preserves(&self, candidate: &str) -> Result<bool, FormatError> {
+        preflight(candidate)?;
         let formatted = match analyze(candidate) {
             Ok(analysis) => analysis,
             Err(FormatError::Syntax { .. }) => return Ok(false),
@@ -100,9 +101,21 @@ struct Buffer {
     len: usize,
 }
 unsafe extern "C" {
+    fn revo_preflight(ptr: *const u8, len: usize) -> Buffer;
     fn revo_analyze(ptr: *const u8, len: usize) -> Buffer;
     fn revo_equivalent(a: *const u8, a_len: usize, b: *const u8, b_len: usize) -> Buffer;
     fn revo_free(buffer: Buffer);
+}
+pub(crate) fn preflight(source: &str) -> Result<(), FormatError> {
+    if source.len() > crate::MAX_SOURCE_BYTES {
+        return Err(FormatError::Validation(format!(
+            "input complexity limit exceeded: source bytes ({})",
+            crate::MAX_SOURCE_BYTES
+        )));
+    }
+    // SAFETY: the borrowed source remains live throughout this synchronous call.
+    decode(unsafe { revo_preflight(source.as_ptr(), source.len()) })?;
+    Ok(())
 }
 impl Drop for Buffer {
     fn drop(&mut self) {

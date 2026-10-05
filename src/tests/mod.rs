@@ -1,5 +1,6 @@
 mod corpus;
 mod formatting;
+mod input_limits;
 
 use crate::{FormatOptions, format, oracle};
 

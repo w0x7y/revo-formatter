@@ -5,6 +5,8 @@ mod layout_index;
 mod oracle;
 pub use error::FormatError;
 pub const UPSTREAM_REVISION: &str = "b571298b6fc95bc863548f118354c8d077792f6f";
+/// Maximum source length, in UTF-8 bytes. Syntax complexity has additional limits.
+pub const MAX_SOURCE_BYTES: usize = 256 * 1024;
 
 /// Layout settings. Width is a soft limit for opaque tokens and sensitive syntax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,12 +26,14 @@ impl Default for FormatOptions {
 /// Format without changing token bytes or syntax, modulo source coordinates.
 /// Procedural macros that inspect offsets, lines or columns can observe formatting.
 /// Literal contents remain opaque. Invalid input produces no formatted candidate.
+/// Inputs exceeding the documented resource limits return `FormatError::Validation`.
 pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
     if !(1..=8).contains(&options.indent_width) || !(20..=240).contains(&options.line_width) {
         return Err(FormatError::InvalidOptions(
             "indent width must be 1..=8 and line width 20..=240".into(),
         ));
     }
+    oracle::preflight(source)?;
     let mut original = source.to_owned();
     // A returned result must be a fixed point of the complete choice algorithm,
     // including conservative fallback. Never emit an unstable intermediate.
