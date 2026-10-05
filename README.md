@@ -1,0 +1,179 @@
+# revofmt
+
+`revofmt` is a Rust CLI and library for formatting Revo source. It validates
+every result with the pinned upstream frontend and preserves syntax modulo
+source coordinates. The supported syntax is that of Revo revision
+`b571298b6fc95bc863548f118354c8d077792f6f`.
+
+The initial supported and verified build platform is native
+`x86_64-unknown-linux-gnu`. The build rejects other host/target combinations.
+Other platforms need separate build and ABI validation. Editor integrations
+are planned for later; this version provides the CLI and library.
+
+## Build from source
+
+Install Rust with edition 2024 support and exact stable Zig **0.17.0**.
+The build script uses `zig` from `PATH`, or the executable selected by `ZIG`.
+It never downloads tools or source. See [THIRD_PARTY.md](THIRD_PARTY.md) for
+the pinned archive checksum, vendored source provenance, and license notices.
+
+With Zig 0.17.0 on `PATH`:
+
+```sh
+zig version
+cargo build --release
+cargo test
+```
+
+Or select its executable explicitly:
+
+```sh
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo build --release
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo test
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+```
+
+The resulting `target/release/revofmt` statically includes the Revo frontend.
+Zig is a compile-time dependency. Running the binary requires no installed
+Zig or Revo executable; normal Linux system libraries still apply.
+
+## CLI usage
+
+```sh
+# Read stdin and print formatted source. An explicit - also reads stdin.
+printf 'let x=1' | target/release/revofmt
+printf 'let x=1' | target/release/revofmt -
+
+# Print one file without editing it.
+target/release/revofmt example.rv
+
+# Check or write several explicit files.
+target/release/revofmt --check first.rv second.rv
+target/release/revofmt --write first.rv second.rv
+
+# Override layout settings.
+target/release/revofmt --indent-width 4 --line-width 24 example.rv
+
+# A filename starting with a dash follows --.
+target/release/revofmt -- --example.rv
+
+target/release/revofmt --help
+target/release/revofmt --version
+```
+
+For example, `let x=1` becomes `let x = 1` followed by a newline.
+Width-driven formatting, tested with `--line-width 24`, changes:
+
+```revo
+print(first_argument, second_argument)
+```
+
+into:
+
+```revo
+print(
+  first_argument,
+  second_argument
+)
+```
+
+Defaults are two spaces per indentation level and 80 display columns.
+`--indent-width` accepts 1 through 8; `--line-width` accepts 20 through 240.
+Width is a soft target. Long literals, comments, and syntax that cannot safely
+break can exceed it. The formatter can retain compact spacing through its
+validated conservative fallback. Existing statement newlines are hard
+boundaries; pipe chains do not receive independent reflow. Expression bodies
+without `do` stay at statement indentation even after a source newline.
+Continuation layouts can be awkward or exceed the target; unary signs and
+labeled `do` spacing receive only basic normalization.
+
+Print mode accepts one input. `--check` also accepts stdin, including when
+no input is specified. `--write` requires file paths and rejects stdin,
+symlinks, and nonregular files. `--check` and `--write` are mutually exclusive.
+There is no directory discovery or configuration file support in this version.
+
+Formatted source goes to stdout only in print mode. Check differences and
+errors go to stderr with their input names. Exit codes are:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success, or all checked inputs already formatted |
+| 1 | At least one checked input needs formatting |
+| 2 | Usage, I/O, syntax, or validation error |
+
+An error in any checked input takes precedence over code 1. Invalid syntax
+produces no formatted source. Write mode computes and validates every input
+before changing any file, so a malformed or unreadable input prevents all
+writes. Each changed file uses a new temporary file in the same directory,
+preserves the original permissions, flushes its contents, and replaces the
+destination atomically. Unchanged files keep their existing inode and
+modification time. Temporary files are removed on errors, with a diagnostic
+if cleanup itself fails.
+
+Multiple file writes are not a single transaction. A later replacement or
+other I/O failure can leave earlier writes completed. The diagnostic lists
+those completed paths so the result can be inspected.
+
+## Rust library usage
+
+Use this checkout as a local dependency:
+
+```toml
+[dependencies]
+revofmt = { path = "/absolute/path/to/revo-formatter" }
+```
+
+```rust
+use revofmt::{FormatError, FormatOptions, format};
+
+fn main() -> Result<(), FormatError> {
+    let options = FormatOptions {
+        indent_width: 2,
+        line_width: 80,
+    };
+    let output = format("let x=1", &options)?;
+    assert_eq!(output, "let x = 1\n");
+    Ok(())
+}
+```
+
+`FormatOptions::default()` supplies the CLI defaults. `FormatError` describes
+invalid options, source syntax errors with byte offsets, or validation
+failures. `UPSTREAM_REVISION` exposes the syntax revision.
+
+## Preservation and validation
+
+All non-whitespace token spellings and the interleaved order of tokens and
+comments stay unchanged. Literal and comment contents remain opaque,
+including documentation comments, quasiquotes, interpolation, and indentation
+inside multiline strings. The formatter preserves layout line endings and
+adds one final newline to nonempty source. Empty source remains empty.
+
+Every returned candidate parses and has the same syntax tree after source
+coordinates are excluded. The output is idempotent: formatting it again
+produces identical bytes. This validates syntax without resolving imports,
+checking types, executing Revo, or expanding procedural macros.
+
+Formatting procedural macros is allowed. Macros that inspect offsets, lines,
+or columns can observe formatting-induced position changes. The guarantee is
+syntax equivalence modulo those coordinates, so such macros can produce
+different results after formatting.
+
+## Tested upstream corpus
+
+The [vendored corpus provenance](tests/fixtures/upstream/PROVENANCE.md) lists
+20 valid inputs from the same pinned revision: six complete `.rv` examples
+and fourteen self-contained documentation snippets. It also lists one
+malformed upstream documentation fence, which is tested as a syntax rejection.
+The valid fixtures include the demo, pipes, procedural macros, types, control
+flow, match arms, multiline literals and comments.
+
+Each valid input is checked at line widths 24, 80 and 120 with indent widths
+2 and 4, giving 120 input/option combinations. Separate assertions check
+reparsing, exact interleaved raw token/comment bytes, complete AST equivalence
+modulo coordinates, and idempotence. Four reviewed expected outputs check
+actual signature/table reflow, block indentation and match-arm layout.
+Negative controls cover malformed sources, whitespace-sensitive calls,
+comment movement and literal respelling. This is a bounded regression corpus;
+it does not establish exhaustive syntax coverage or uniform layout quality.

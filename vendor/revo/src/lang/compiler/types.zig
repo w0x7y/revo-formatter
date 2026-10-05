@@ -1,0 +1,2073 @@
+const ast = @import("../ast.zig");
+const std = @import("std");
+
+pub const UnionVariant = struct {
+    name: []const u8,
+    types: []const TypeInfo,
+};
+
+/// one named field of a structural table type: `{ name: string }`
+/// `?name:` fields may be absent from the value
+pub const RecordField = struct {
+    name: []const u8,
+    field_type: TypeInfo,
+    optional: bool = false,
+};
+
+/// build a table TypeInfo; the key/value ptrs borrow the caller's
+/// storage, arena-owned in practice like every other TypeInfo
+pub fn makeTable(key: ?*const TypeInfo, value: *const TypeInfo, fields: ?[]RecordField) TypeInfo {
+    return .{ .tag = .{ .table = .{ .key = key, .value = value, .fields = fields } } };
+}
+
+/// linear field lookup by name; field lists stay small, no map needed
+pub fn findField(fields: []const RecordField, name: []const u8) ?RecordField {
+    for (fields) |f| if (std.mem.eql(u8, f.name, name)) return f;
+    return null;
+}
+
+/// index variant, for replacing a field in place (dupes: last wins)
+pub fn findFieldIndex(fields: []const RecordField, name: []const u8) ?usize {
+    for (fields, 0..) |f, i| if (std.mem.eql(u8, f.name, name)) return i;
+    return null;
+}
+
+pub const TypeInfo = struct {
+    tag: Tag,
+    doc: ?[]const u8 = null,
+
+    pub const Tag = union(enum) {
+        bool, // TODO: remove, make this be atom union of :true | :false
+        number,
+        string,
+        resource,
+        atom: []const u8,
+        @"union": []const UnionVariant,
+        table: struct {
+            key: ?*const TypeInfo,
+            value: *const TypeInfo,
+            // per-field types for `{ name: string }`; null = untyped map
+            fields: ?[]const RecordField = null,
+        },
+        function: *const FunctionSignature,
+        any,
+        never,
+        type_var: []const u8,
+    };
+
+    pub fn eql(self: TypeInfo, other: TypeInfo) bool {
+        return switch (self.tag) {
+            .bool => other.tag == .bool,
+            .number => other.tag == .number,
+            .resource => other.tag == .resource,
+            .string => other.tag == .string,
+            .atom => |a| if (other.tag == .atom) std.mem.eql(u8, ast.atomName(a), ast.atomName(other.tag.atom)) else false,
+            .@"union" => |us| if (other.tag == .@"union") blk: {
+                if (us.len != other.tag.@"union".len) break :blk false;
+                for (us, other.tag.@"union") |a, b| {
+                    if (!std.mem.eql(u8, a.name, b.name)) break :blk false;
+                    if (a.types.len != b.types.len) break :blk false;
+                    for (a.types, b.types) |at, bt| if (!eql(at, bt)) break :blk false;
+                }
+                break :blk true;
+            } else false,
+            .table => |ti| if (other.tag == .table) blk: {
+                const o = other.tag.table;
+                if (!eql(ti.value.*, o.value.*)) break :blk false;
+
+                if (ti.key) |tk| {
+                    if (o.key) |ok| {
+                        if (!eql(tk.*, ok.*)) break :blk false;
+                    } else break :blk false;
+                } else if (o.key != null) break :blk false;
+
+                // fields compare syntactically, order-sensitive
+                if (ti.fields) |fs| {
+                    const os = o.fields orelse break :blk false;
+                    if (fs.len != os.len) break :blk false;
+                    for (fs, os) |f, of| {
+                        if (!std.mem.eql(u8, f.name, of.name)) break :blk false;
+                        if (f.optional != of.optional) break :blk false;
+                        if (!eql(f.field_type, of.field_type)) break :blk false;
+                    }
+                } else if (o.fields != null) break :blk false;
+
+                break :blk true;
+            } else false,
+            .function => |f| if (other.tag == .function) blk: {
+                const o = other.tag.function;
+                if (f == o) break :blk true;
+                if (!f.return_type.eql(o.return_type)) break :blk false;
+                if (f.params.len != o.params.len) break :blk false;
+                for (f.params, o.params) |a, b| if (!a.eql(b)) break :blk false;
+                break :blk true;
+            } else false,
+            .type_var => |name| if (other.tag == .type_var) std.mem.eql(u8, name, other.tag.type_var) else false,
+            .any => true,
+            .never => other.tag == .never,
+        };
+    }
+};
+
+pub const FunctionSignature = struct {
+    params: []const TypeInfo,
+    return_type: TypeInfo,
+    param_names: []const []const u8 = &.{},
+    is_any_fn_sig: bool = false,
+    required_count: usize = 0,
+    type_params: []const []const u8 = &.{},
+    default_values: []const ?*ast.Node = &.{},
+    doc: ?[]const u8 = null,
+};
+
+/// resolved pieces for one FunctionSignature; every builder (compiler
+/// allocFnSig, semantic make/newSig, type_syntax eval) walks its own AST
+/// because error handling differs, then funnels through here
+pub const SignatureParts = struct {
+    param_names: []const []const u8,
+    params: []const TypeInfo,
+    return_type: TypeInfo = .{ .tag = .any },
+    required_count: usize = 0,
+    type_params: []const []const u8 = &.{},
+    default_values: []const ?*ast.Node = &.{},
+    doc: ?[]const u8 = null,
+};
+
+pub fn newSignature(alloc: std.mem.Allocator, parts: SignatureParts) std.mem.Allocator.Error!*FunctionSignature {
+    const sig = try alloc.create(FunctionSignature);
+    sig.* = .{
+        .param_names = parts.param_names,
+        .params = parts.params,
+        .return_type = parts.return_type,
+        .required_count = parts.required_count,
+        .type_params = parts.type_params,
+        .default_values = parts.default_values,
+        .doc = parts.doc,
+    };
+    return sig;
+}
+
+///
+/// unannotated params act as implicit generics
+///
+/// `fn v2_new(x, y)` behaves like `fn v2_new<x, y>(x: x, y: y)`
+/// so `{ x = x }` infers `{ x: x }`
+/// and call sites substitute concrete arg types. `_` stays `any`
+///
+pub fn combinedTypeParams(
+    alloc: std.mem.Allocator,
+    explicit: []const []const u8,
+    params: []const ast.FnParam,
+) std.mem.Allocator.Error![]const []const u8 {
+    var extra: usize = 0;
+
+    for (params, 0..) |p, pi| {
+        if (p.type_name != null) continue;
+        if (ast.isDiscardName(p.name)) continue;
+        var found = false;
+
+        for (explicit) |e| if (std.mem.eql(u8, e, p.name)) {
+            found = true;
+            break;
+        };
+
+        if (!found) for (params[0..pi]) |prev| {
+            if (prev.type_name != null) continue;
+
+            if (std.mem.eql(u8, prev.name, p.name)) {
+                found = true;
+                break;
+            }
+        };
+
+        if (!found) extra += 1;
+    }
+    if (extra == 0) return explicit;
+
+    // dedup repeated param names: first wins, mirroring bindTypeParams
+    var out = try alloc.alloc([]const u8, explicit.len + extra);
+    @memcpy(out[0..explicit.len], explicit);
+    var idx: usize = explicit.len;
+
+    for (params) |p| {
+        if (p.type_name != null) continue;
+        if (ast.isDiscardName(p.name)) continue;
+        var found = false;
+
+        for (out[0..idx]) |e| if (std.mem.eql(u8, e, p.name)) {
+            found = true;
+            break;
+        };
+
+        if (found) continue;
+        out[idx] = p.name;
+        idx += 1;
+    }
+    return out[0..idx];
+}
+
+/// param without annotation becomes `type_var(name)`, else `any` for `_`
+pub fn implicitParamType(p: ast.FnParam) TypeInfo {
+    if (p.type_name != null) unreachable;
+    if (ast.isDiscardName(p.name)) return .{ .tag = .any };
+
+    return .{ .tag = .{ .type_var = p.name } };
+}
+
+/// params needing values at call time, one formula for all four sig loops
+///   replaces `+= 1` and `len -= 1` spellings, same count either way
+pub fn requiredCount(params: []const ast.FnParam) usize {
+    var n: usize = 0;
+    for (params) |p| {
+        if (!p.optional and p.default_value == null) n += 1;
+    }
+
+    return n;
+}
+
+/// buildFnSig flags, both off for semantic strict mode
+pub const SigOpt = struct {
+    degrade_param: bool = false,
+    want_defaults: bool = false,
+};
+
+/// one fn-sig builder for all four inference sites
+///   eval resolves each annotation, comptime generic so error sets stay narrow
+///   degrade turns per-param failures to any, strict propagates
+///   want_defaults fills default_values like locals does
+///   scoping save/restore stays at call sites, only loop + sig live here
+pub fn buildFnSig(
+    alloc: std.mem.Allocator,
+    ctx: anytype,
+    eval: anytype,
+    params: []const ast.FnParam,
+    return_type: ?*ast.TypeExpr,
+    type_params: []const []const u8,
+    doc: ?[]const u8,
+    opt: SigOpt,
+) !*FunctionSignature {
+    var param_names = try std.ArrayList([]const u8).initCapacity(alloc, params.len);
+    errdefer param_names.deinit(alloc);
+
+    var param_types = try std.ArrayList(TypeInfo).initCapacity(alloc, params.len);
+    errdefer param_types.deinit(alloc);
+
+    for (params) |p| {
+        try param_names.append(alloc, p.name);
+
+        const t = if (p.type_name) |tn| eval(ctx, tn) catch |e| blk: {
+            if (opt.degrade_param) break :blk TypeInfo{ .tag = .any };
+
+            return e;
+        } else implicitParamType(p);
+        try param_types.append(alloc, t);
+    }
+
+    const default_values = if (opt.want_defaults) blk: {
+        var defaults = try std.ArrayList(?*ast.Node).initCapacity(alloc, params.len);
+        errdefer defaults.deinit(alloc);
+        for (params) |p| try defaults.append(alloc, p.default_value);
+
+        break :blk try defaults.toOwnedSlice(alloc);
+    } else &.{};
+
+    return newSignature(alloc, .{
+        .param_names = try param_names.toOwnedSlice(alloc),
+        .params = try param_types.toOwnedSlice(alloc),
+        .return_type = if (return_type) |rt| eval(ctx, rt) catch |e| blk: {
+            if (opt.degrade_param) break :blk TypeInfo{ .tag = .any };
+
+            return e;
+        } else TypeInfo{ .tag = .any },
+        .required_count = requiredCount(params),
+        .type_params = try combinedTypeParams(alloc, type_params, params),
+        .default_values = default_values,
+        .doc = doc,
+    });
+}
+
+/// the single inference interface every scope implements
+///
+/// BareCtx degrades unknown names to any; ModuleCtx resolves dep-local
+/// aliases; SemanticChecker resolves with lexical scope; Compiler resolves
+/// with annotations and locals. generic type computation (inferExprType,
+/// evalTypeExpr, cover building) takes this, never anytype, so changing
+/// the interface breaks all four implementors at build time instead of
+/// drifting silently. each scope gets a one-line `check()` returning this.
+pub const CheckCtx = struct {
+    ptr: *anyopaque,
+    vtable: *const VTable,
+    alloc: std.mem.Allocator,
+    /// annotations to consult before live inference, set only by Compiler
+    ///   semantic and import scopes analyze with null and infer everything
+    annotations: ?Annotations = null,
+
+    pub const VTable = struct {
+        isTypeParam: *const fn (ptr: *anyopaque, name: []const u8) bool,
+        resolveTypeAlias: *const fn (ptr: *anyopaque, name: []const u8) ?TypeInfo,
+        resolveImportAlias: *const fn (ptr: *anyopaque, module: []const u8, name: []const u8) ?TypeInfo,
+        inferIdentType: *const fn (ptr: *anyopaque, name: []const u8) TypeInfo,
+        inferCallReturnType: *const fn (ptr: *anyopaque, callee: *const ast.Node, args: []const *ast.Node, type_args: []const []const u8, implicit_self: bool) TypeInfo,
+        inferFieldType: *const fn (ptr: *anyopaque, object: *const ast.Node, name: []const u8) TypeInfo,
+        inferFnType: *const fn (ptr: *anyopaque, params: []const ast.FnParam, return_type: ?*ast.TypeExpr, type_params: []const []const u8, doc: ?[]const u8) TypeInfo,
+    };
+
+    /// wrap any scope implementing the seven vtable methods
+    /// scope must be a pointer; receivers may be mutable or const
+    /// the vtable lives in static storage per scope type, never on the stack
+    pub fn init(scope: anytype, alloc: std.mem.Allocator) CheckCtx {
+        const S = @TypeOf(scope);
+        const V = struct {
+            fn vtIsTypeParam(p: *anyopaque, name: []const u8) bool {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.isTypeParam(name);
+            }
+            fn vtResolveTypeAlias(p: *anyopaque, name: []const u8) ?TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.resolveTypeAlias(name);
+            }
+            fn vtResolveImportAlias(p: *anyopaque, module: []const u8, name: []const u8) ?TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.resolveImportAlias(module, name);
+            }
+            fn vtInferIdentType(p: *anyopaque, name: []const u8) TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.inferIdentType(name);
+            }
+            fn vtInferCallReturnType(p: *anyopaque, callee: *const ast.Node, args: []const *ast.Node, type_args: []const []const u8, implicit_self: bool) TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.inferCallReturnType(callee, args, type_args, implicit_self);
+            }
+            fn vtInferFieldType(p: *anyopaque, object: *const ast.Node, name: []const u8) TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.inferFieldType(object, name);
+            }
+            fn vtInferFnType(p: *anyopaque, params: []const ast.FnParam, return_type: ?*ast.TypeExpr, type_params: []const []const u8, doc: ?[]const u8) TypeInfo {
+                const s: S = @ptrCast(@alignCast(p));
+                return s.inferFnType(params, return_type, type_params, doc);
+            }
+            const vtable: VTable = .{
+                .isTypeParam = vtIsTypeParam,
+                .resolveTypeAlias = vtResolveTypeAlias,
+                .resolveImportAlias = vtResolveImportAlias,
+                .inferIdentType = vtInferIdentType,
+                .inferCallReturnType = vtInferCallReturnType,
+                .inferFieldType = vtInferFieldType,
+                .inferFnType = vtInferFnType,
+            };
+        };
+        return .{
+            .ptr = scope,
+            .alloc = alloc,
+            .vtable = &V.vtable,
+        };
+    }
+
+    pub fn isTypeParam(self: CheckCtx, name: []const u8) bool {
+        return self.vtable.isTypeParam(self.ptr, name);
+    }
+
+    pub fn resolveTypeAlias(self: CheckCtx, name: []const u8) ?TypeInfo {
+        return self.vtable.resolveTypeAlias(self.ptr, name);
+    }
+
+    pub fn resolveImportAlias(self: CheckCtx, module: []const u8, name: []const u8) ?TypeInfo {
+        return self.vtable.resolveImportAlias(self.ptr, module, name);
+    }
+
+    pub fn inferIdentType(self: CheckCtx, name: []const u8) TypeInfo {
+        return self.vtable.inferIdentType(self.ptr, name);
+    }
+
+    pub fn inferCallReturnType(self: CheckCtx, callee: *const ast.Node, args: []const *ast.Node, type_args: []const []const u8, implicit_self: bool) TypeInfo {
+        return self.vtable.inferCallReturnType(self.ptr, callee, args, type_args, implicit_self);
+    }
+
+    pub fn inferFieldType(self: CheckCtx, object: *const ast.Node, name: []const u8) TypeInfo {
+        return self.vtable.inferFieldType(self.ptr, object, name);
+    }
+
+    pub fn inferFnType(self: CheckCtx, params: []const ast.FnParam, return_type: ?*ast.TypeExpr, type_params: []const []const u8, doc: ?[]const u8) TypeInfo {
+        return self.vtable.inferFnType(self.ptr, params, return_type, type_params, doc);
+    }
+};
+
+/// empty scope for tooling
+/// no aliases, no generics, no imports, etc
+/// unknown names degrade
+pub const BareCtx = struct {
+    alloc: std.mem.Allocator,
+    pub fn check(self: *BareCtx) CheckCtx {
+        return CheckCtx.init(self, self.alloc);
+    }
+    pub fn isTypeParam(_: *const BareCtx, _: []const u8) bool {
+        return false;
+    }
+    pub fn resolveTypeAlias(_: *BareCtx, _: []const u8) ?TypeInfo {
+        return null;
+    }
+
+    /// bare ctx has no module scope, so qualified types always degrade
+    pub fn resolveImportAlias(_: *BareCtx, _: []const u8, _: []const u8) ?TypeInfo {
+        return null;
+    }
+
+    pub fn inferIdentType(_: *BareCtx, _: []const u8) TypeInfo {
+        return .{ .tag = .any };
+    }
+
+    pub fn inferCallReturnType(_: *BareCtx, _: *const ast.Node, _: []const *ast.Node, _: []const []const u8, _: bool) TypeInfo {
+        return .{ .tag = .any };
+    }
+
+    pub fn inferFieldType(_: *BareCtx, _: *const ast.Node, _: []const u8) TypeInfo {
+        return .{ .tag = .any };
+    }
+
+    pub fn inferFnType(_: *BareCtx, _: []const ast.FnParam, _: ?*ast.TypeExpr, _: []const []const u8, _: ?[]const u8) TypeInfo {
+        return .{ .tag = .any };
+    }
+};
+
+/// one-shot eval with no scope: tooling convenience (hover, sig previews)
+pub fn evalBare(alloc: std.mem.Allocator, te: *const ast.TypeExpr) !TypeInfo {
+    var bare = BareCtx{ .alloc = alloc };
+    return evalTypeExpr(bare.check(), te);
+}
+
+/// sentinel "any function" type,,, matches any callable value
+/// ptr identity;; only matches when &ANY_FN_SIG is used
+pub const ANY_FN_SIG: FunctionSignature = .{
+    .params = &.{},
+    .return_type = .{ .tag = .any },
+    .param_names = &.{},
+    .is_any_fn_sig = true,
+};
+
+/// sentinel type info for `any` used by the generic table sentinel
+const ANY_TI: TypeInfo = .{ .tag = .any };
+/// sentinel for a generic table (no key/value constraints)
+pub const TABLE_GENERIC: TypeInfo = makeTable(null, &ANY_TI, null);
+
+/// deep-clone a TypeInfo into a new allocator
+pub fn clone(ti: TypeInfo, alloc: std.mem.Allocator) !TypeInfo {
+    return switch (ti.tag) {
+        .bool, .number, .string, .resource, .any, .never => ti,
+        .atom => |s| .{ .tag = .{ .atom = try alloc.dupe(u8, s) } },
+        .type_var => |s| .{ .tag = .{ .type_var = try alloc.dupe(u8, s) } },
+        .@"union" => |variants| {
+            const owned = try alloc.alloc(UnionVariant, variants.len);
+            for (variants, 0..) |v, i| {
+                const types_owned = try alloc.alloc(TypeInfo, v.types.len);
+                for (v.types, 0..) |vt, j| types_owned[j] = try clone(vt, alloc);
+                owned[i] = .{
+                    .name = try alloc.dupe(u8, v.name),
+                    .types = types_owned,
+                };
+            }
+            return .{ .tag = .{ .@"union" = owned } };
+        },
+        .table => |tbl| {
+            const key: ?*TypeInfo = if (tbl.key) |_| try alloc.create(TypeInfo) else null;
+            errdefer if (key) |k| alloc.destroy(k);
+
+            if (key) |k| k.* = try clone(tbl.key.?.*, alloc);
+            const value = try alloc.create(TypeInfo);
+            value.* = try clone(tbl.value.*, alloc);
+            errdefer alloc.destroy(value);
+
+            const fields: ?[]RecordField = if (tbl.fields) |fs| blk: {
+                const owned = try alloc.alloc(RecordField, fs.len);
+                errdefer alloc.free(owned);
+
+                for (fs, owned) |f, *dst| dst.* = .{
+                    .name = try alloc.dupe(u8, f.name),
+                    .field_type = try clone(f.field_type, alloc),
+                    .optional = f.optional,
+                };
+                break :blk owned;
+            } else null;
+            return .{ .tag = .{ .table = .{ .key = key, .value = value, .fields = fields } } };
+        },
+        .function => |sig| {
+            const owned = try alloc.create(FunctionSignature);
+            errdefer alloc.destroy(owned);
+
+            const params = try alloc.alloc(TypeInfo, sig.params.len);
+            errdefer alloc.free(params);
+
+            for (sig.params, 0..) |p, i| params[i] = try clone(p, alloc);
+            const param_names = try alloc.alloc([]const u8, sig.param_names.len);
+            errdefer alloc.free(param_names);
+
+            for (sig.param_names, 0..) |n, i| param_names[i] = try alloc.dupe(u8, n);
+            const type_params = try alloc.alloc([]const u8, sig.type_params.len);
+            errdefer alloc.free(type_params);
+
+            for (sig.type_params, 0..) |tp, i| type_params[i] = try alloc.dupe(u8, tp);
+            owned.* = .{
+                .params = params,
+                .return_type = try clone(sig.return_type, alloc),
+                .param_names = param_names,
+                .is_any_fn_sig = sig.is_any_fn_sig,
+                .required_count = sig.required_count,
+                .type_params = type_params,
+            };
+            return .{ .tag = .{ .function = owned } };
+        },
+    };
+}
+
+/// free all heap-allocated memory owned by a TypeInfo
+pub fn deinitType(ti: *TypeInfo, alloc: std.mem.Allocator) void {
+    if (ti.doc) |d| alloc.free(d);
+    switch (ti.tag) {
+        .bool, .number, .string, .resource, .any, .never => {},
+        .atom, .type_var => |s| if (s.len > 0) alloc.free(s),
+        .@"union" => |variants| {
+            for (variants) |*v| {
+                alloc.free(v.name);
+                for (v.types) |*vt| deinitType(@constCast(vt), alloc);
+                alloc.free(v.types);
+            }
+            alloc.free(variants);
+        },
+        .table => |tbl| {
+            if (tbl.key) |k| {
+                deinitType(@constCast(k), alloc);
+                alloc.destroy(@constCast(k));
+            }
+            deinitType(@constCast(tbl.value), alloc);
+            alloc.destroy(@constCast(tbl.value));
+            if (tbl.fields) |fields| {
+                for (fields) |*f| {
+                    alloc.free(f.name);
+                    deinitType(@constCast(&f.field_type), alloc);
+                }
+                alloc.free(fields);
+            }
+        },
+        .function => |sig| {
+            for (sig.params) |*p| deinitType(@constCast(p), alloc);
+            alloc.free(sig.params);
+            deinitType(@constCast(&sig.return_type), alloc);
+            for (sig.param_names) |n| alloc.free(n);
+            alloc.free(sig.param_names);
+            for (sig.type_params) |tp| alloc.free(tp);
+            alloc.free(sig.type_params);
+            alloc.destroy(@constCast(sig));
+        },
+    }
+    ti.* = .{ .tag = .never };
+}
+
+/// interned type handle, index into TypeTable
+///   copies are free, the table owns the canonical trees
+pub const TypeId = u32;
+
+/// annotations bundle: node -> TypeId map plus the table owning the types
+///   map and table travel together; the table outlives every map reader
+pub const Annotations = struct {
+    map: *std.AutoHashMap(*const ast.Node, TypeId),
+    table: *TypeTable,
+};
+
+/// dedup store for canonical TypeInfo trees
+///   intern clones into the table arena; inputs stay caller-owned as before
+///   lookup returns borrowed views, never free them
+///   linear scan: distinct types per build number in the dozens, and exact
+///  compare short-circuits on the tag
+pub const TypeTable = struct {
+    alloc: std.mem.Allocator,
+    types: std.ArrayList(TypeInfo),
+
+    pub fn init(alloc: std.mem.Allocator) TypeTable {
+        return .{ .alloc = alloc, .types = .empty };
+    }
+
+    pub fn deinit(self: *TypeTable) void {
+        for (self.types.items) |*ti| deinitType(ti, self.alloc);
+        self.types.deinit(self.alloc);
+    }
+
+    pub fn intern(self: *TypeTable, info: TypeInfo) !TypeId {
+        for (self.types.items, 0..) |existing, i| {
+            if (eqlExact(existing, info)) return @intCast(i);
+        }
+
+        const owned = try clone(info, self.alloc);
+        errdefer {
+            var tmp = owned;
+            deinitType(&tmp, self.alloc);
+        }
+        try self.types.append(self.alloc, owned);
+
+        return @intCast(self.types.items.len - 1);
+    }
+
+    pub fn get(self: *const TypeTable, id: TypeId) TypeInfo {
+        return self.types.items[id];
+    }
+};
+
+/// exact structural identity for interning, unlike eql below
+///   any matches only any, all sig fields count including names and docs
+///   pointer leaves (table key/value, sig, defaults) compare by identity
+///   when non-empty; empty slices match regardless of backing
+pub fn eqlExact(a: TypeInfo, b: TypeInfo) bool {
+    if (std.meta.activeTag(a.tag) != std.meta.activeTag(b.tag)) return false;
+
+    if (a.doc == null) {
+        if (b.doc != null) return false;
+    } else if (b.doc) |bd| {
+        if (!std.mem.eql(u8, a.doc.?, bd)) return false;
+    } else return false;
+
+    return switch (a.tag) {
+        .bool, .number, .string, .resource, .any, .never => true,
+        .atom => |s| std.mem.eql(u8, s, b.tag.atom),
+        .type_var => |s| std.mem.eql(u8, s, b.tag.type_var),
+        .@"union" => |us| blk: {
+            const vs = b.tag.@"union";
+            if (us.len != vs.len) break :blk false;
+
+            for (us, vs) |u, v| {
+                if (!std.mem.eql(u8, u.name, v.name)) break :blk false;
+                if (u.types.len != v.types.len) break :blk false;
+
+                for (u.types, v.types) |ut, vt| {
+                    if (!eqlExact(ut, vt)) break :blk false;
+                }
+            }
+            break :blk true;
+        },
+        .table => |t| blk: {
+            const o = b.tag.table;
+
+            if ((t.key == null) != (o.key == null)) break :blk false;
+            if (t.key) |k| {
+                if (!eqlExact(k.*, o.key.?.*)) break :blk false;
+            }
+
+            if (!eqlExact(t.value.*, o.value.*)) break :blk false;
+            if ((t.fields == null) != (o.fields == null)) break :blk false;
+
+            if (t.fields) |fs| {
+                const os = o.fields.?;
+                if (fs.len != os.len) break :blk false;
+                for (fs, os) |f, of| {
+                    if (!std.mem.eql(u8, f.name, of.name)) break :blk false;
+                    if (f.optional != of.optional) break :blk false;
+                    if (!eqlExact(f.field_type, of.field_type)) break :blk false;
+                }
+            }
+            break :blk true;
+        },
+        .function => |f| blk: {
+            // wow this is ugly..... cant be arsed to make it smart
+            const o = b.tag.function;
+            if (f == o) break :blk true;
+            if (f.params.len != o.params.len) break :blk false;
+            for (f.params, o.params) |p, q| {
+                if (!eqlExact(p, q)) break :blk false;
+            }
+
+            if (!eqlExact(f.return_type, o.return_type)) break :blk false;
+            if (f.param_names.len != o.param_names.len) break :blk false;
+            for (f.param_names, o.param_names) |n, m| {
+                if (!std.mem.eql(u8, n, m)) break :blk false;
+            }
+
+            if (f.required_count != o.required_count) break :blk false;
+            if (f.is_any_fn_sig != o.is_any_fn_sig) break :blk false;
+            if (f.type_params.len != o.type_params.len) break :blk false;
+            for (f.type_params, o.type_params) |tp, tq| {
+                if (!std.mem.eql(u8, tp, tq)) break :blk false;
+            }
+
+            if (f.default_values.len != o.default_values.len) break :blk false;
+            for (f.default_values, o.default_values) |d, e| {
+                if ((d == null) != (e == null)) break :blk false;
+                if (d != null and d.? != e.?) break :blk false;
+            }
+
+            if (f.doc == null) {
+                if (o.doc != null) break :blk false;
+            } else if (o.doc) |od| {
+                if (!std.mem.eql(u8, f.doc.?, od)) break :blk false;
+            } else break :blk false;
+            break :blk true;
+        },
+    };
+}
+
+pub fn canCoerce(from: TypeInfo, to: TypeInfo) bool {
+    if (from.tag == .never) return true;
+    if (to.tag == .never) return false;
+    if (from.eql(to) or to.tag == .any or from.tag == .any or from.tag == .type_var or to.tag == .type_var) return true;
+    if (from.tag == .table and to.tag == .table) {
+        const from_table = from.tag.table;
+        const to_table = to.tag.table;
+        // target names fields: every one must exist in source with a
+        // fitting type; extra source fields are fine, tables are open
+        if (to_table.fields) |wants| {
+            if (from_table.fields) |haves| {
+                for (wants) |w| {
+                    const have = findField(haves, w.name) orelse {
+                        // `?name:` wants tolerate absent fields
+                        if (w.optional) continue;
+                        return false;
+                    };
+                    if (!canCoerce(have.field_type, w.field_type)) return false;
+                }
+                return true;
+            }
+            // source field types unknown: fall back to the value check
+        }
+        if (!canCoerce(from_table.value.*, to_table.value.*)) return false;
+        if (to_table.key == null) return true;
+        if (from_table.key == null) return true;
+        return canCoerce(from_table.key.?.*, to_table.key.?.*);
+    }
+    // function subtyping: contravariant params, covariant return
+    if (to.tag == .function and from.tag == .function) {
+        const to_sig = to.tag.function;
+        const from_sig = from.tag.function;
+        // sentinel "any function" take and give any
+        if (to_sig.is_any_fn_sig or from_sig.is_any_fn_sig) return true;
+        // ret t: from's return must fit to's return
+        if (!canCoerce(from_sig.return_type, to_sig.return_type)) return false;
+        // params: to's params must fit from's params
+        if (from_sig.params.len != to_sig.params.len) return false;
+        for (from_sig.params, to_sig.params) |fp, tp| {
+            if (!canCoerce(tp, fp)) return false;
+        }
+        return true;
+    }
+    // empty atom (.atom == "") is a sentinel for "any atom"
+    if (to.tag == .atom and from.tag == .atom) {
+        if (to.tag.atom.len == 0 or from.tag.atom.len == 0) return true;
+        return std.mem.eql(u8, to.tag.atom, from.tag.atom);
+    }
+    // :true and :false are bool
+    if (to.tag == .bool and from.tag == .atom) {
+        const name = ast.atomName(from.tag.atom);
+        return std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false");
+    }
+    if (to.tag == .@"union") {
+        // fast-path for atom literals vs atom-only variants
+        if (from.tag == .atom) {
+            for (to.tag.@"union") |variant| {
+                if (variant.types.len == 1 and variant.types[0].tag == .atom) {
+                    if (std.mem.eql(u8, ast.atomName(variant.types[0].tag.atom), ast.atomName(from.tag.atom))) return true;
+                }
+            }
+        }
+        for (to.tag.@"union") |variant| {
+            if (unionVariantAccepts(variant, from)) return true;
+        }
+    }
+    if (from.tag == .@"union") {
+        if (from.tag.@"union".len == 0) return false;
+        for (from.tag.@"union") |variant| {
+            if (!targetAcceptsVariant(variant, to)) return false;
+        }
+        return true;
+    }
+    return from.tag == .number and to.tag == .number;
+}
+
+fn unionVariantAccepts(variant: UnionVariant, value: TypeInfo) bool {
+    if (variant.types.len == 1) return canCoerce(value, variant.types[0]);
+    return false;
+}
+
+fn targetAcceptsVariant(variant: UnionVariant, target: TypeInfo) bool {
+    if (variant.types.len == 1) return canCoerce(variant.types[0], target);
+    return false;
+}
+
+pub fn inferBinaryOp(op: ast.BinOp, l: TypeInfo, r: TypeInfo) TypeInfo {
+    return switch (op) {
+        .@"union" => .{ .tag = .any },
+        .concat => .{ .tag = .string },
+        .add, .sub, .div, .mod, .pow => if (l.tag == .number and r.tag == .number) .{ .tag = .number } else .{ .tag = .any },
+        .mul => if (l.tag == .number and r.tag == .number) .{ .tag = .number } else .{ .tag = .any },
+        .int_div => if (l.tag == .number and r.tag == .number) .{ .tag = .number } else .{ .tag = .any },
+        .band, .bor, .bxor, .shl, .shr => if (l.tag == .number and r.tag == .number) .{ .tag = .number } else .{ .tag = .any },
+        .eq, .neq, .lt, .gt, .lte, .gte => .{ .tag = .bool },
+    };
+}
+
+pub fn inferUnaryOp(op: ast.UnaryOp, T: TypeInfo) TypeInfo {
+    return switch (op) {
+        .negate => if (T.tag == .number) T else .{ .tag = .any },
+        .not => .{ .tag = .bool },
+        else => .{ .tag = .any },
+    };
+}
+
+pub fn inferIfType(then_type: TypeInfo, else_type: ?TypeInfo) TypeInfo {
+    if (else_type) |et| return unifyBranchType(then_type, et);
+    return .{ .tag = .any };
+}
+
+/// unify a branch type into the running if/orelse/match result:
+/// `never` branches diverge and contribute nothing; a leading `any` is
+/// overwritten by a later concrete type (pattern vars narrow only while
+/// their scope is live, so re-inference after scope pop sees `any`)
+pub fn unifyBranchType(acc: TypeInfo, branch: TypeInfo) TypeInfo {
+    if (branch.tag == .never) return acc;
+    if (acc.tag == .never) return branch;
+    if (acc.tag == .any) return branch;
+    if (branch.tag == .any) return acc;
+    if (acc.eql(branch)) return acc;
+    return .{ .tag = .any };
+}
+
+pub fn inferMatchType(ctx: CheckCtx, subject: *const ast.Node, arms: []const ast.MatchArm) TypeInfo {
+    const subject_type = inferExprType(ctx, subject);
+    var result: TypeInfo = .{ .tag = .never };
+    for (arms) |arm| {
+        result = unifyBranchType(result, inferExprType(ctx, arm.then));
+    }
+
+    // miss falls through to nil at runtime
+    // so a non-exhaustive match always carries :nil in its type
+    if (!matchCovers(ctx, subject_type, arms)) {
+        result = withNilMiss(ctx.alloc, result);
+    }
+    return result;
+}
+
+pub fn inferOrelseType(left: TypeInfo, right: TypeInfo) TypeInfo {
+    const unwrapped = if (isResultType(left)) okTypeFrom(left) else left;
+    return unifyBranchType(unwrapped, right);
+}
+
+fn isResultTag(name: []const u8) bool {
+    return std.mem.eql(u8, name, ":ok") or std.mem.eql(u8, name, "ok") or
+        std.mem.eql(u8, name, ":err") or std.mem.eql(u8, name, "err");
+}
+
+fn isOkTag(name: []const u8) bool {
+    return std.mem.eql(u8, name, ":ok") or std.mem.eql(u8, name, "ok");
+}
+
+/// tag of one union variant, table-style `{:ok, T}`
+///     : tags live in positional field "0", payload in "1", "2", ...
+pub fn unionVariantTagEql(variant: UnionVariant, tag: []const u8) bool {
+    const pattern_tag = if (tag.len > 0 and tag[0] == ':') tag[1..] else tag;
+    if (variant.types.len == 0) return false;
+
+    if (variant.types[0].tag == .atom) {
+        return std.mem.eql(u8, ast.atomName(variant.types[0].tag.atom), pattern_tag);
+    }
+
+    if (variant.types[0].tag == .table) {
+        const fields = variant.types[0].tag.table.fields orelse return false;
+        if (fields.len == 0 or !std.mem.eql(u8, fields[0].name, "0")) return false;
+        if (fields[0].field_type.tag != .atom) return false;
+        return std.mem.eql(u8, ast.atomName(fields[0].field_type.tag.atom), pattern_tag);
+    }
+
+    return false;
+}
+
+/// payload types after the tag: leading numeric table fields past "0"
+///     - stops at the first non-positional field
+pub fn appendUnionVariantPayload(alloc: std.mem.Allocator, variant: UnionVariant, out: *std.ArrayList(TypeInfo)) !void {
+    if (variant.types.len == 0) return;
+    if (variant.types[0].tag == .atom) {
+        try out.appendSlice(alloc, variant.types[1..]);
+        return;
+    }
+
+    if (variant.types[0].tag == .table) {
+        const fields = variant.types[0].tag.table.fields orelse return;
+        if (fields.len == 0) return;
+        var idx: usize = 1;
+
+        for (fields[1..]) |f| {
+            var buf: [16]u8 = undefined;
+            const want = std.mem.print(&buf, "{d}", .{idx}) catch return;
+            if (!std.mem.eql(u8, f.name, want)) return;
+            try out.append(alloc, f.field_type);
+            idx += 1;
+        }
+    }
+}
+
+/// `{:ok, T} | {:err, any}` unions (both the `!T` sugar and the literal form)
+///     : the shapes `?` and `orelse` unwrap at runtime
+pub fn isResultType(ti: TypeInfo) bool {
+    return switch (ti.tag) {
+        .@"union" => |us| blk: {
+            for (us) |v| {
+                if (unionVariantTagEql(v, ":ok") or unionVariantTagEql(v, ":err")) break :blk true;
+            }
+            break :blk false;
+        },
+        .table => |tbl| blk: {
+            const fields = tbl.fields orelse break :blk false;
+            if (fields.len == 0 or fields[0].field_type.tag != .atom) break :blk false;
+            break :blk isResultTag(ast.atomName(fields[0].field_type.tag.atom));
+        },
+        else => false,
+    };
+}
+
+///
+/// unwrap the `:ok` payload from a `{:ok, T} | {:err, any}` union
+///     or a `{:ok, T}` table
+/// ; mirrors the runtime, which yields only the first payload element
+pub fn okTypeFrom(ti: TypeInfo) TypeInfo {
+    return switch (ti.tag) {
+        .@"union" => |variants| blk: {
+            for (variants) |v| {
+                if (!unionVariantTagEql(v, ":ok")) continue;
+                if (v.types.len > 0 and v.types[0].tag == .table) {
+                    const fields = v.types[0].tag.table.fields orelse continue;
+                    if (fields.len >= 2 and std.mem.eql(u8, fields[1].name, "1")) break :blk fields[1].field_type;
+                    continue;
+                }
+            }
+            break :blk .{ .tag = .any };
+        },
+        .table => |tbl| blk: {
+            const fields = tbl.fields orelse break :blk .{ .tag = .any };
+            if (fields.len < 2 or fields[0].field_type.tag != .atom) break :blk .{ .tag = .any };
+            if (!isOkTag(ast.atomName(fields[0].field_type.tag.atom))) break :blk .{ .tag = .any };
+            if (!std.mem.eql(u8, fields[1].name, "1")) break :blk .{ .tag = .any };
+            break :blk fields[1].field_type;
+        },
+        else => .{ .tag = .any },
+    };
+}
+
+pub fn collectVariants(alloc: std.mem.Allocator, ti: TypeInfo, variants: *std.ArrayList(UnionVariant)) !void {
+    switch (ti.tag) {
+        .@"union" => |us| for (us) |u| try variants.append(alloc, u),
+        else => {
+            var one = try std.ArrayList(TypeInfo).initCapacity(alloc, 1);
+            errdefer one.deinit(alloc);
+            try one.append(alloc, ti);
+            try variants.append(alloc, .{ .name = "", .types = try one.toOwnedSlice(alloc) });
+        },
+    }
+}
+
+pub const type_name_map: std.StaticStringMap(TypeInfo) = std.StaticStringMap(TypeInfo).initComptime(.{
+    .{ "number", TypeInfo{ .tag = .number } },
+    .{ "num", TypeInfo{ .tag = .number } },
+    .{ "int", TypeInfo{ .tag = .number } },
+    .{ "string", TypeInfo{ .tag = .string } },
+    .{ "bool", TypeInfo{ .tag = .bool } },
+    .{ "any", TypeInfo{ .tag = .any } },
+    .{ "table", TABLE_GENERIC },
+    .{ "resource", TypeInfo{ .tag = .resource } },
+    .{ "function", TypeInfo{ .tag = .{ .function = &ANY_FN_SIG } } },
+    .{ "atom", TypeInfo{ .tag = .{ .atom = "" } } }, // empty atom payload is the "any atom" sentinel
+    .{ "never", TypeInfo{ .tag = .never } },
+});
+
+pub fn resolveTypeName(ctx: CheckCtx, name: []const u8) TypeInfo {
+    if (type_name_map.get(name)) |res| return res;
+    if (name.len > 0 and name[0] == ':') return .{ .tag = .{ .atom = name } };
+    if (ctx.resolveTypeAlias(name)) |aliased| return aliased;
+    return .{ .tag = .any };
+}
+
+pub fn inferExprType(ctx: CheckCtx, node: *const ast.Node) TypeInfo {
+    // annotated nodes answer from the table
+    //   everything else infers live
+    //   only Compiler sets annotations
+    //   , so producer scopes never hit this
+    if (ctx.annotations) |ann| {
+        if (ann.map.get(node)) |id| return ann.table.get(id);
+    }
+    return switch (node.expr) {
+        .number => .{ .tag = .number },
+        .string, .multiline_string => .{ .tag = .string },
+        .atom => |name| .{ .tag = .{ .atom = name } },
+        .nil => .{ .tag = .{ .atom = ":nil" } },
+        .ident => |name| ctx.inferIdentType(name),
+        .unary => |u| inferUnaryOp(u.op, inferExprType(ctx, u.expr)),
+        .binary => |b| inferBinaryOp(b.op, inferExprType(ctx, b.left), inferExprType(ctx, b.right)),
+        .and_expr, .or_expr => .{ .tag = .bool },
+        .if_expr => |v| inferIfType(
+            inferExprType(ctx, v.then_expr),
+            if (v.else_expr) |e| inferExprType(ctx, e) else null,
+        ),
+        .unless_expr => |v| inferIfType(
+            inferExprType(ctx, v.then_expr),
+            if (v.else_expr) |e| inferExprType(ctx, e) else null,
+        ),
+
+        .table => |entries| inferTableType(ctx, entries),
+        .call => |call| ctx.inferCallReturnType(call.callee, @as([]const *ast.Node, call.args), call.type_args, call.implicit_self),
+        .field => |field| ctx.inferFieldType(field.object, field.name),
+        .index => |index| inferIndexType(ctx, index.object, index.key),
+        .fn_expr => |fn_expr| ctx.inferFnType(fn_expr.params, fn_expr.return_type, fn_expr.type_params, fn_expr.doc),
+        .block => |exprs| inferBlockResultType(ctx, exprs),
+        .return_expr => .{ .tag = .any },
+        .loop_expr => |v| if (v.label == null) .{ .tag = .{ .atom = "loop" } } else .{ .tag = .any },
+        .for_loop => |v| if (v.label == null) .{ .tag = .{ .atom = "loop" } } else .{ .tag = .any },
+        .while_loop => |v| if (v.label == null) .{ .tag = .{ .atom = "loop" } } else .{ .tag = .any },
+        .break_expr => |b| if (b.value) |v| inferExprType(ctx, v) else .{ .tag = .any },
+        .continue_expr => |c| if (c.value) |v| inferExprType(ctx, v) else .{ .tag = .any },
+        .labeled_block => |lb| inferExprType(ctx, lb.body),
+        .try_expr => |inner| blk: {
+            const it = inferExprType(ctx, inner);
+            break :blk switch (it.tag) {
+                .@"union", .table => okTypeFrom(it),
+                else => it,
+            };
+        },
+        .orelse_expr => |v| inferOrelseType(inferExprType(ctx, v.left), inferExprType(ctx, v.right)),
+        .comp_block => |cb| inferExprType(ctx, cb.expr),
+        .import_stmt, .test_block, .test_suite, .proc_macro, .quasiquote => .{ .tag = .any },
+        .match_expr => |v| inferMatchType(ctx, v.subject, v.arms),
+        .range_literal, .slice_literal => .{ .tag = .number },
+        .assign_expr, .compound_assign, .decl, .binding, .table_pattern, .ascribed, .type_alias => .{ .tag = .any },
+    };
+}
+
+fn inferTableType(ctx: CheckCtx, entries: []const ast.TableEntry) TypeInfo {
+    var value_type: TypeInfo = .{ .tag = .any };
+    var key_type: TypeInfo = .{ .tag = .any };
+    var saw_explicit_key = false;
+    var saw_implicit_key = false;
+    var saw_dynamic = false;
+    var fields = std.ArrayList(RecordField).initCapacity(ctx.alloc, entries.len) catch return .{ .tag = .any };
+    var array_index: u32 = 0;
+
+    for (entries) |entry| {
+        // method defs are record fields with their fn type
+        // they carry no value type contribution
+        if (entry.key == null and entry.value.expr == .decl and
+            entry.value.expr.decl.inner.expr == .binding and
+            entry.value.expr.decl.inner.expr.binding.value.expr == .fn_expr)
+        {
+            const binding = entry.value.expr.decl.inner.expr.binding;
+            const method_name = if (binding.target.expr == .ident) binding.target.expr.ident else continue;
+            const fn_type = inferExprType(ctx, binding.value);
+
+            fields.append(ctx.alloc, .{ .name = method_name, .field_type = fn_type }) catch return .{ .tag = .any };
+            continue;
+        }
+        const field_type = inferExprType(ctx, entry.value);
+        value_type = mergeInferredType(value_type, field_type);
+        if (entry.key != null) {
+            const inferred_key = inferTableKeyType(ctx, entry);
+            key_type = if (saw_explicit_key) mergeInferredType(key_type, inferred_key) else inferred_key;
+            saw_explicit_key = true;
+            //
+            // static `name = v` keys become record fields; dupes replace,
+            // last wins like the runtime
+            if (ast.staticFieldName(entry)) |name| {
+                if (findFieldIndex(fields.items, name)) |i| {
+                    fields.items[i].field_type = field_type;
+                } else fields.append(ctx.alloc, .{ .name = name, .field_type = field_type }) catch return .{ .tag = .any };
+            } else {
+                // computed or non-ident keys hide dynamic content
+                // so a missing field cant prove absence
+                saw_dynamic = true;
+            }
+        } else {
+            // keyless/implicit entries are numeric fields
+            const idx_name = ctx.alloc.print( "{d}", .{array_index}) catch return .{ .tag = .any };
+            array_index += 1;
+            fields.append(ctx.alloc, .{ .name = idx_name, .field_type = field_type }) catch return .{ .tag = .any };
+            saw_implicit_key = true;
+        }
+    }
+
+    const value_ptr = ctx.alloc.create(TypeInfo) catch return .{ .tag = .any };
+    value_ptr.* = value_type;
+
+    // a literal's shape is fully known, even when empty: `{}` carries
+    // zero fields so record targets reject it; genuinely unknown shapes
+    // (plain `table`, `any`, dynamic keys) keep fields null and stay
+    // optimistic
+    const known_fields: ?[]RecordField = if (saw_dynamic) null else fields.toOwnedSlice(ctx.alloc) catch return .{ .tag = .any };
+
+    if (!saw_explicit_key and !saw_implicit_key) {
+        return makeTable(null, value_ptr, known_fields);
+    }
+
+    if (saw_implicit_key) key_type = mergeInferredType(key_type, .{ .tag = .number });
+    const key_ptr = ctx.alloc.create(TypeInfo) catch return .{ .tag = .any };
+    key_ptr.* = key_type;
+    return makeTable(key_ptr, value_ptr, known_fields);
+}
+
+fn inferTableKeyType(ctx: CheckCtx, entry: ast.TableEntry) TypeInfo {
+    if (ast.staticFieldName(entry)) |_| return .{ .tag = .string };
+    if (entry.key) |key| return inferExprType(ctx, key);
+    return .{ .tag = .any };
+}
+
+fn mergeInferredType(current: TypeInfo, next: TypeInfo) TypeInfo {
+    if (current.tag == .any) return next;
+    if (next.tag == .any) return current;
+    if (current.eql(next)) return current;
+    if ((current.tag == .number and next.tag == .number) or (current.tag == .number and next.tag == .number)) return .{ .tag = .number };
+    return .{ .tag = .any };
+}
+
+pub fn inferIndexType(ctx: CheckCtx, object: *const ast.Node, key: *const ast.Node) TypeInfo {
+    if (key.expr == .range_literal or key.expr == .slice_literal) {
+        return switch (inferExprType(ctx, object).tag) {
+            .string => .{ .tag = .string },
+            else => .{ .tag = .any },
+        };
+    }
+    return switch (inferExprType(ctx, object).tag) {
+        .string => .{ .tag = .string },
+        else => .{ .tag = .any },
+    };
+}
+
+pub fn inferBlockResultType(ctx: CheckCtx, exprs: []const *ast.Node) TypeInfo {
+    if (exprs.len == 0) return .{ .tag = .any };
+    return inferExprType(ctx, exprs[exprs.len - 1]);
+}
+
+/// type ast back into a TypeInfo
+/// every TypeExpr kind must be handled here; this is the single place where AST type
+/// nodes becomes semantic TypeInfo values. mirrors ast.printTypeExpr
+/// ctx is any CheckCtx scope: aliases resolve in the caller's scope
+pub fn evalTypeExpr(ctx: CheckCtx, te: *const ast.TypeExpr) !TypeInfo {
+    switch (te.kind) {
+        // "number" -> int (from type_name_map), unknown names -> any
+        .named => |name| {
+            if (ctx.isTypeParam(name)) return .{ .tag = .{ .type_var = name } };
+            if (type_name_map.get(name)) |res| return res;
+            if (ctx.resolveTypeAlias(name)) |aliased| return aliased;
+            return .{ .tag = .any };
+        },
+        // "a.T" -> module a's alias T, or any when unresolvable (the
+        // compiler has no dep IO, so it always lands here; semantic
+        // validates qualified names separately and errors first)
+        .qualified => |q| {
+            if (ctx.resolveImportAlias(q.module, q.name)) |t| return t;
+            return .{ .tag = .any };
+        },
+        // ":nil", ":ok" -> atom
+        .atom => |name| return .{ .tag = .{ .atom = name } },
+        // "int | :nil" -> union(@[{name="", types=@[int]}, {name="", types=@[:nil]}])
+        // "number?" -> union_of(named("number"), atom(":nil")) from parseAtom
+        .union_of => |variants| {
+            var collected = try std.ArrayList(UnionVariant).initCapacity(ctx.alloc, 4);
+            errdefer collected.deinit(ctx.alloc);
+            for (variants) |v| {
+                const inner = try evalTypeExpr(ctx, v);
+                try collectVariants(ctx.alloc, inner, &collected);
+            }
+            return .{ .tag = .{ .@"union" = try collected.toOwnedSlice(ctx.alloc) } };
+        },
+        // "fn(int) -> bool" -> function(param_types=@[int], return_type=bool)
+        .function => |f| {
+            var param_types = try std.ArrayList(TypeInfo).initCapacity(ctx.alloc, f.params.len);
+            errdefer param_types.deinit(ctx.alloc);
+            for (f.params) |p| {
+                try param_types.append(ctx.alloc, if (p.type_name) |tn| try evalTypeExpr(ctx, tn) else .{ .tag = .any });
+            }
+
+            var param_names = try std.ArrayList([]const u8).initCapacity(ctx.alloc, f.params.len);
+            errdefer param_names.deinit(ctx.alloc);
+            for (f.params) |p| try param_names.append(ctx.alloc, p.name);
+            const return_type = if (f.return_type) |rt| try evalTypeExpr(ctx, rt) else TypeInfo{ .tag = .any };
+
+            var required: usize = 0;
+            for (f.params) |p| {
+                if (!p.optional) required += 1;
+            }
+
+            const sig = try newSignature(ctx.alloc, .{
+                .param_names = try param_names.toOwnedSlice(ctx.alloc),
+                .params = try param_types.toOwnedSlice(ctx.alloc),
+                .return_type = return_type,
+                .required_count = required,
+            });
+
+            return .{ .tag = .{ .function = sig } };
+        },
+        // "table<int>" -> table(key=null, value=int), "table<string, int>" -> table(key=string, value=int)
+        .parameterized => |p| {
+            var params = try std.ArrayList(TypeInfo).initCapacity(ctx.alloc, p.params.len);
+            errdefer params.deinit(ctx.alloc);
+            for (p.params) |param| try params.append(ctx.alloc, try evalTypeExpr(ctx, param));
+            const resolved = try params.toOwnedSlice(ctx.alloc);
+            if (std.mem.eql(u8, p.name, "table")) {
+                if (resolved.len == 1) {
+                    const v = try ctx.alloc.create(TypeInfo);
+                    v.* = resolved[0];
+                    return .{ .tag = .{ .table = .{ .key = null, .value = v } } };
+                }
+                if (resolved.len == 2) {
+                    const k = try ctx.alloc.create(TypeInfo);
+                    k.* = resolved[0];
+                    const v = try ctx.alloc.create(TypeInfo);
+                    v.* = resolved[1];
+                    return .{ .tag = .{ .table = .{ .key = k, .value = v } } };
+                }
+            }
+            return .{ .tag = .any };
+        },
+        // "{ name: string, age: num }" -> table with per-field types;
+        // names borrow source text like .named does, owners clone
+        .record => |fields| {
+            const owned = try ctx.alloc.alloc(RecordField, fields.len);
+            for (fields, owned) |f, *dst| dst.* = .{
+                .name = f.name,
+                .field_type = try evalTypeExpr(ctx, f.type_expr),
+                .optional = f.optional,
+            };
+            const value = try ctx.alloc.create(TypeInfo);
+            value.* = .{ .tag = .any };
+            return makeTable(null, value, owned);
+        },
+        // "!int" -> union(@[{name="", types=@[{:ok, int}]}, {name="", types=@[{:err, any}]}])
+        // the same shape the literal `{:ok, int} | {:err, any}` produces
+        .error_union => |inner| {
+            const t = try evalTypeExpr(ctx, inner);
+            var collected = try std.ArrayList(UnionVariant).initCapacity(ctx.alloc, 2);
+            errdefer collected.deinit(ctx.alloc);
+            try collectVariants(ctx.alloc, try makeResultTable(ctx, ":ok", t), &collected);
+            try collectVariants(ctx.alloc, try makeResultTable(ctx, ":err", .{ .tag = .any }), &collected);
+            return .{ .tag = .{ .@"union" = try collected.toOwnedSlice(ctx.alloc) } };
+        },
+    }
+}
+
+///
+/// guardless arm coverage for match exhaustiveness
+/// , one cover per matcher, guards never count since a guard can fail
+///
+fn patternCover(ctx: CheckCtx, node: *const ast.Node) MatchCover {
+    return switch (node.expr) {
+        .ident => .wildcard,
+        .atom => |name| .{ .atom = name },
+        .nil => .{ .atom = ":nil" },
+        .number => .number,
+        .string, .multiline_string => .string,
+
+        .ascribed => |a| if (a.expr.expr == .ident)
+            .{ .ascribed = evalTypeExpr(ctx, a.type_name) catch TypeInfo{ .tag = .any } }
+        else
+            patternCover(ctx, a.expr),
+
+        .table_pattern => |items| blk: {
+            const elems = ctx.alloc.alloc(MatchCover, items.len) catch break :blk .other;
+
+            for (items, elems) |item, *dst| dst.* = patternCover(ctx, item);
+
+            break :blk .{ .table = elems };
+        },
+
+        else => .other,
+    };
+}
+
+fn matcherCover(ctx: CheckCtx, m: ast.MatchMatcher) MatchCover {
+    return switch (m) {
+        .wildcard => .wildcard,
+        .expr => |e| patternCover(ctx, e),
+    };
+}
+
+/// one cover per guardless matcher
+/// , callers decide what guards mean
+pub fn buildArmCovers(ctx: CheckCtx, arm: ast.MatchArm) ![]MatchCover {
+    var covers = std.ArrayList(MatchCover).initCapacity(ctx.alloc, arm.matchers.len) catch return &.{};
+    errdefer covers.deinit(ctx.alloc);
+
+    for (arm.matchers) |m| try covers.append(ctx.alloc, matcherCover(ctx, m));
+    return covers.toOwnedSlice(ctx.alloc);
+}
+
+pub fn buildCovers(ctx: CheckCtx, arms: []const ast.MatchArm) ![]MatchCover {
+    var covers = std.ArrayList(MatchCover).initCapacity(ctx.alloc, arms.len) catch return &.{};
+    errdefer covers.deinit(ctx.alloc);
+
+    for (arms) |arm| {
+        if (arm.guard != null) continue;
+
+        const one = try buildArmCovers(ctx, arm);
+        defer ctx.alloc.free(one);
+
+        try covers.appendSlice(ctx.alloc, one);
+    }
+
+    return covers.toOwnedSlice(ctx.alloc);
+}
+
+pub fn matchCovers(ctx: CheckCtx, subject: TypeInfo, arms: []const ast.MatchArm) bool {
+    const covers = buildCovers(ctx, arms) catch return false;
+    defer ctx.alloc.free(covers);
+
+    return matchCoversAll(subject, covers);
+}
+
+/// one `{:tag, payload}` table, the same shape `{...}` literals infer:
+/// positional fields, tag atom in "0", payload in "1"
+fn makeResultTable(ctx: CheckCtx, tag: []const u8, payload: TypeInfo) !TypeInfo {
+    const fields = try ctx.alloc.alloc(RecordField, 2);
+    fields[0] = .{ .name = "0", .field_type = .{ .tag = .{ .atom = tag } } };
+    fields[1] = .{ .name = "1", .field_type = payload };
+    const value = try ctx.alloc.create(TypeInfo);
+    value.* = .{ .tag = .any };
+    return makeTable(null, value, fields);
+}
+
+/// walk arg types against param types and bind each type_var found inside a
+/// param to the concrete type at the same position, e.g. `self: {:err, T}`
+/// against `{:err, string}` binds T -> string. best-effort: first binding per
+/// name wins, mismatched shapes are skipped
+/// subst is any type with `put(name: []const u8, t: TypeInfo)`
+pub fn bindTypeParams(subst: anytype, params: []const TypeInfo, arg_types: []const TypeInfo) anyerror!void {
+    const count = @min(params.len, arg_types.len);
+    for (0..count) |i| try bindTypeParam(subst, params[i], arg_types[i]);
+}
+
+fn bindTypeParam(subst: anytype, param: TypeInfo, arg: TypeInfo) anyerror!void {
+    switch (param.tag) {
+        .type_var => |name| if (arg.tag != .any) try subst.put(name, arg),
+        .table => |tbl| {
+            if (arg.tag != .table) return;
+            try bindTypeParam(subst, tbl.value.*, arg.tag.table.value.*);
+            if (tbl.key) |k| if (arg.tag.table.key) |ak| try bindTypeParam(subst, k.*, ak.*);
+            // `{ name: T }` against `{ name: string }` binds T -> string
+            if (tbl.fields) |pfs| {
+                if (arg.tag.table.fields) |afs| {
+                    for (pfs) |pf| {
+                        if (findField(afs, pf.name)) |af| try bindTypeParam(subst, pf.field_type, af.field_type);
+                    }
+                }
+            }
+        },
+        .function => |fsig| {
+            if (arg.tag != .function) return;
+            try bindTypeParams(subst, fsig.params, arg.tag.function.params);
+            try bindTypeParam(subst, fsig.return_type, arg.tag.function.return_type);
+        },
+        // tagged unions only: match each param variant to the arg variant with
+        // the same discriminator atom
+        .@"union" => |variants| {
+            if (arg.tag != .@"union") return;
+            for (variants) |pv| {
+                if (pv.types.len == 0 or pv.types[0].tag != .atom) continue;
+                for (arg.tag.@"union") |av| {
+                    if (av.types.len != pv.types.len) continue;
+                    if (av.types[0].tag != .atom or av.types[0].tag.atom.len == 0) continue;
+                    if (!std.mem.eql(u8, ast.atomName(pv.types[0].tag.atom), ast.atomName(av.types[0].tag.atom))) continue;
+                    for (pv.types[1..], av.types[1..]) |p, a| try bindTypeParam(subst, p, a);
+                    break;
+                }
+            }
+        },
+        else => {},
+    }
+}
+
+/// first-wins type var map over a linear scan
+pub const TypeSubst = struct {
+    entries: std.ArrayList(SubstEntry),
+    alloc: std.mem.Allocator,
+    pub const SubstEntry = struct { name: []const u8, type: TypeInfo };
+
+    pub fn init(alloc: std.mem.Allocator, cap: usize) std.mem.Allocator.Error!TypeSubst {
+        return .{ .entries = try std.ArrayList(SubstEntry).initCapacity(alloc, cap), .alloc = alloc };
+    }
+
+    pub fn deinit(self: *TypeSubst) void {
+        self.entries.deinit(self.alloc);
+    }
+
+    pub fn get(self: *const TypeSubst, name: []const u8) ?TypeInfo {
+        for (self.entries.items) |e| if (std.mem.eql(u8, e.name, name)) return e.type;
+        return null;
+    }
+
+    pub fn put(self: *TypeSubst, name: []const u8, ti: TypeInfo) !void {
+        if (self.get(name) != null) return;
+        try self.entries.append(self.alloc, .{ .name = name, .type = ti });
+    }
+};
+
+/// substitute explicit + inferred arg types into a generic return type
+/// degrades to any on OOM
+pub fn substituteGenericReturn(
+    alloc: std.mem.Allocator,
+    ret: TypeInfo,
+    type_params: []const []const u8,
+    explicit: []const TypeInfo,
+    params: []const TypeInfo,
+    arg_types: []const TypeInfo,
+) TypeInfo {
+    var subst = TypeSubst.init(alloc, type_params.len) catch return .{ .tag = .any };
+    defer subst.deinit();
+    for (type_params, 0..) |tp, i| {
+        if (i < explicit.len) subst.put(tp, explicit[i]) catch {};
+    }
+    bindTypeParams(&subst, params, arg_types) catch {};
+    return substituteTypeParams(alloc, ret, &subst) catch .{ .tag = .any };
+}
+
+/// instantiate a generic fn signature at a call site: resolve explicit
+/// type args, infer the rest from arg types, substitute into the return.
+/// shared by the compiler and semantic (their scopes differ, the math
+/// does not); degrades to any on OOM
+pub fn substCallReturn(
+    ctx: CheckCtx,
+    sig: *const FunctionSignature,
+    callee: *const ast.Node,
+    args: []const *ast.Node,
+    type_args: []const []const u8,
+    implicit_self: bool,
+) TypeInfo {
+    var explicit = std.ArrayList(TypeInfo).initCapacity(ctx.alloc, type_args.len) catch return .{ .tag = .any };
+    defer explicit.deinit(ctx.alloc);
+    for (type_args) |ta| explicit.append(ctx.alloc, resolveTypeName(ctx, ta)) catch return .{ .tag = .any };
+    const eff = effectiveArgs(ctx.alloc, sig.params.len, callee, args, implicit_self) catch return .{ .tag = .any };
+    var arg_types = std.ArrayList(TypeInfo).initCapacity(ctx.alloc, eff.len) catch return .{ .tag = .any };
+    defer arg_types.deinit(ctx.alloc);
+    for (eff) |a| arg_types.append(ctx.alloc, inferExprType(ctx, a)) catch return .{ .tag = .any };
+    return substituteGenericReturn(ctx.alloc, sig.return_type, sig.type_params, explicit.items, sig.params, arg_types.items);
+}
+
+/// method calls (implicit_self) carry the receiver as arg 0
+pub fn effectiveArgs(
+    alloc: std.mem.Allocator,
+    params_len: usize,
+    callee: *const ast.Node,
+    args: []const *ast.Node,
+    implicit_self: bool,
+) ![]const *ast.Node {
+    if (!implicit_self or callee.expr != .field or params_len == 0) return args;
+    if (args.len != params_len - 1) return args;
+    const eff = try alloc.alloc(*ast.Node, args.len + 1);
+    eff[0] = callee.expr.field.object;
+    for (args, 1..) |a, i| eff[i] = a;
+    return eff;
+}
+
+/// coerce actual into expected
+pub fn ensureCoercible(expected: TypeInfo, actual: TypeInfo) !void {
+    if (expected.tag == .any or actual.tag == .any) return;
+    if (expected.eql(actual)) return;
+    if (canCoerce(actual, expected)) return;
+    return error.TypeError;
+}
+
+/// substitute type params in a TypeInfo tree
+/// subst is any type with `get(key: []const u8) ?TypeInfo`
+pub fn substituteTypeParams(alloc: std.mem.Allocator, ti: TypeInfo, subst: anytype) !TypeInfo {
+    return switch (ti.tag) {
+        .type_var => |name| subst.get(name) orelse .{ .tag = .any },
+        .function => |fsig| blk: {
+            const new_params = try alloc.alloc(TypeInfo, fsig.params.len);
+            for (fsig.params, new_params) |p, *np| np.* = try substituteTypeParams(alloc, p, subst);
+            const new_ret = try substituteTypeParams(alloc, fsig.return_type, subst);
+            const new_sig = try newSignature(alloc, .{
+                .param_names = fsig.param_names,
+                .params = new_params,
+                .return_type = new_ret,
+                .type_params = fsig.type_params,
+            });
+            break :blk .{ .tag = .{ .function = new_sig } };
+        },
+        .table => |tbl| blk: {
+            const new_value = try alloc.create(TypeInfo);
+            new_value.* = try substituteTypeParams(alloc, tbl.value.*, subst);
+            const new_key: ?*TypeInfo = if (tbl.key) |k| blk2: {
+                const nk = try alloc.create(TypeInfo);
+                nk.* = try substituteTypeParams(alloc, k.*, subst);
+                break :blk2 nk;
+            } else null;
+            const new_fields: ?[]RecordField = if (tbl.fields) |fs| blk2: {
+                const owned = try alloc.alloc(RecordField, fs.len);
+                for (fs, owned) |f, *dst| dst.* = .{
+                    .name = f.name,
+                    .field_type = try substituteTypeParams(alloc, f.field_type, subst),
+                    .optional = f.optional,
+                };
+                break :blk2 owned;
+            } else null;
+            break :blk makeTable(new_key, new_value, new_fields);
+        },
+        else => ti,
+    };
+}
+
+//
+// match cov prover
+//
+
+/// one guardless arm shape
+/// , `x: T` stays only on binders, else use inner shape
+pub const MatchCover = union(enum) {
+    wildcard, // `_`, binders, everything
+    atom: []const u8, // `:ok`
+    ascribed: TypeInfo, // `x: T`, subject fits `T`
+    number, // literal, one of infinitely many
+    string, // literal, one of infinitely many
+    table: []const MatchCover, // `{p0, ...}`, array part only
+    other, // unknown shape, meets but never covers
+};
+
+/// array length of a table type, null when unknown
+/// , counts "0", "1", ... with no gaps, skips named keys
+/// , gaps, extra numbers, and open shapes yield null
+/// , null covers nothing, but stays reachable for overlaps
+fn tableArrayLen(fields: ?[]const RecordField) ?usize {
+    const fs = fields orelse return null;
+
+    var len: usize = 0;
+    while (len <= fs.len) {
+        var buf: [16]u8 = undefined;
+        const want = std.mem.print(&buf, "{d}", .{len}) catch return null;
+        if (findField(fs, want) == null) break;
+        len += 1;
+    }
+
+    for (fs) |f| {
+        const idx = std.fmt.parseInt(usize, f.name, 10) catch continue;
+        if (idx >= len) return null;
+    }
+
+    return len;
+}
+
+/// element type at idx, null when absent
+fn tableElemType(fields: []const RecordField, idx: usize) ?TypeInfo {
+    var buf: [16]u8 = undefined;
+    const want = std.mem.print(&buf, "{d}", .{idx}) catch return null;
+
+    if (findField(fields, want)) |f| return f.field_type;
+    return null;
+}
+
+/// one cover hits every value of subject
+/// , true is sure, false means nothing, may still hit
+/// , tables need one shape only
+fn coversOne(subject: TypeInfo, cover: MatchCover) bool {
+    switch (cover) {
+        .wildcard => return true,
+        .ascribed => |ti| return canCoerce(subject, ti),
+
+        .atom => |name| {
+            if (subject.tag == .never) return true;
+            if (subject.tag != .atom) return false;
+
+            return std.mem.eql(u8, ast.atomName(subject.tag.atom), ast.atomName(name));
+        },
+
+        .number, .string, .other => return subject.tag == .never,
+
+        .table => |elems| {
+            if (subject.tag == .never) return true;
+            if (subject.tag == .table) return tableHits(elems, subject.tag.table.fields);
+            if (subject.tag != .@"union") return false;
+
+            for (subject.tag.@"union") |v| if (!variantHits(elems, v)) return false;
+            return true;
+        },
+    }
+}
+
+/// table elems hit every element of fields
+/// , same length and every element hits
+fn tableHits(elems: []const MatchCover, fields: ?[]const RecordField) bool {
+    const want = tableArrayLen(fields) orelse return false;
+    if (want != elems.len) return false;
+
+    const fs = fields.?;
+    for (elems, 0..) |e, i| {
+        const et = tableElemType(fs, i) orelse return false;
+        if (!coversOne(et, e)) return false;
+    }
+
+    return true;
+}
+
+/// table elems hit one union variant
+/// , plain atoms never meet tables
+fn variantHits(elems: []const MatchCover, variant: UnionVariant) bool {
+    if (variant.types.len == 0) return false;
+
+    const inner = variant.types[0];
+    if (inner.tag != .table) return false;
+
+    return tableHits(elems, inner.tag.table.fields);
+}
+
+/// every value of subject meets some cover
+/// , pure, no ast, no eval
+/// , wildcard and fitting `x: T` return early
+/// , unions need all variants hit, tables need one shape hit
+pub fn matchCoversAll(subject: TypeInfo, covers: []const MatchCover) bool {
+    if (subject.tag == .never) return true;
+
+    for (covers) |c| switch (c) {
+        .wildcard => return true,
+        .ascribed => |ti| if (canCoerce(subject, ti)) {
+            return true;
+        },
+        else => {},
+    };
+
+    switch (subject.tag) {
+        .@"union" => |us| {
+            for (us) |v| if (!variantCovered(v, covers)) return false;
+
+            return true;
+        },
+
+        .bool => {
+            var saw_true = false;
+            var saw_false = false;
+
+            for (covers) |c| switch (c) {
+                .atom => |name| {
+                    const bare = ast.atomName(name);
+                    if (std.mem.eql(u8, bare, "true")) saw_true = true;
+                    if (std.mem.eql(u8, bare, "false")) saw_false = true;
+                },
+                else => {},
+            };
+
+            return saw_true and saw_false;
+        },
+
+        .table, .atom => {
+            for (covers) |c| if (coversOne(subject, c)) return true;
+
+            return false;
+        },
+
+        else => return false,
+    }
+}
+
+/// one union variant meets some cover
+/// , plain atoms need atom, tables need shape hit, else fitting `x: T`
+fn variantCovered(variant: UnionVariant, covers: []const MatchCover) bool {
+    for (covers) |c| switch (c) {
+        .atom => |name| if (unionVariantTagEql(variant, name)) return true,
+        .ascribed => |ti| if (targetAcceptsVariant(variant, ti)) return true,
+        .table => |elems| if (variantHits(elems, variant)) return true,
+        else => {},
+    };
+
+    return false;
+}
+
+/// some value of subject could meet cover
+/// , unknown shapes stay reachable, never proven dead
+/// , elems recurse here, so one check covers all depths
+pub fn matchOverlaps(subject: TypeInfo, cover: MatchCover) bool {
+    switch (cover) {
+        .wildcard, .other => return true,
+        .table => |elems| return tableMeets(elems, subject),
+
+        .ascribed => |ti| switch (subject.tag) {
+            .@"union" => |us| {
+                for (us) |v| if (targetAcceptsVariant(v, ti)) return true;
+                return false;
+            },
+            .any, .type_var => return true,
+            else => return canCoerce(subject, ti),
+        },
+
+        .atom => |name| switch (subject.tag) {
+            .any, .type_var => return true,
+            .@"union" => |us| {
+                for (us) |v| if (unionVariantTagEql(v, name)) return true;
+                return false;
+            },
+            .bool => {
+                const bare = ast.atomName(name);
+                return std.mem.eql(u8, bare, "true") or std.mem.eql(u8, bare, "false");
+            },
+            .atom => |s| return std.mem.eql(u8, ast.atomName(s), ast.atomName(name)),
+            else => return false,
+        },
+
+        .number => switch (subject.tag) {
+            .number, .any, .type_var => return true,
+            .@"union" => |us| {
+                for (us) |v| if (targetAcceptsVariant(v, .{ .tag = .number })) return true;
+                return false;
+            },
+            else => return false,
+        },
+
+        .string => switch (subject.tag) {
+            .string, .any, .type_var => return true,
+            .@"union" => |us| {
+                for (us) |v| if (targetAcceptsVariant(v, .{ .tag = .string })) return true;
+                return false;
+            },
+            else => return false,
+        },
+    }
+}
+
+/// table elems could meet subject
+/// , any stays reachable, never stays dead
+/// , unions need one variant met, other shapes never meet tables
+fn tableMeets(elems: []const MatchCover, subject: TypeInfo) bool {
+    switch (subject.tag) {
+        .any, .type_var => return true,
+        .never => return false,
+        .table => |tbl| return tableMeetsFields(elems, tbl.fields),
+
+        .@"union" => |us| {
+            for (us) |v| if (variantMeets(elems, v)) return true;
+            return false;
+        },
+
+        else => return false,
+    }
+}
+
+/// table elems could meet fields
+/// , unknown length stays reachable
+/// , known length needs same count and every element meets
+fn tableMeetsFields(elems: []const MatchCover, fields: ?[]const RecordField) bool {
+    const want = tableArrayLen(fields) orelse return true;
+    if (want != elems.len) return false;
+
+    const fs = fields.?;
+    for (elems, 0..) |e, i| {
+        const et = tableElemType(fs, i) orelse return true;
+        if (!matchOverlaps(et, e)) return false;
+    }
+
+    return true;
+}
+
+/// table elems could meet one variant
+/// , plain atoms never meet tables, other shapes stay reachable
+fn variantMeets(elems: []const MatchCover, variant: UnionVariant) bool {
+    if (variant.types.len == 0) return true;
+
+    const inner = variant.types[0];
+    if (inner.tag == .atom) return false;
+    if (inner.tag == .table) return tableMeetsFields(elems, inner.tag.table.fields);
+
+    return true;
+}
+
+/// union result with a :nil miss arm
+///
+/// non-exhaustive match falls to nil at runtime, so :nil joins the type
+/// `any` stays `any`, `never` becomes just :nil
+/// low memory keeps result
+pub fn withNilMiss(alloc: std.mem.Allocator, result: TypeInfo) TypeInfo {
+    if (result.tag == .any) return result;
+    if (result.tag == .never) return .{ .tag = .{ .atom = ":nil" } };
+
+    var variants = std.ArrayList(UnionVariant).initCapacity(alloc, 4) catch return result;
+    errdefer variants.deinit(alloc);
+
+    collectVariants(alloc, result, &variants) catch return result;
+    const nil_types = alloc.alloc(TypeInfo, 1) catch return result;
+
+    nil_types[0] = .{ .tag = .{ .atom = ":nil" } };
+    variants.append(alloc, .{ .name = "", .types = nil_types }) catch return result;
+
+    const owned = variants.toOwnedSlice(alloc) catch return result;
+    return .{ .tag = .{ .@"union" = owned } };
+}
+
+/// bare names of uncovered union variants, for warnings
+/// , borrows subject, empty when none nameable
+pub fn uncoveredTags(alloc: std.mem.Allocator, subject: TypeInfo, covers: []const MatchCover, out: *std.ArrayList([]const u8)) !void {
+    switch (subject.tag) {
+        .@"union" => |us| {
+            for (us) |v| {
+                if (v.types.len == 0) continue;
+                if (variantCovered(v, covers)) continue;
+
+                if (v.types[0].tag == .atom) {
+                    try out.append(alloc, ast.atomName(v.types[0].tag.atom));
+                } else if (v.types[0].tag == .table) {
+                    const fields = v.types[0].tag.table.fields orelse continue;
+                    const alen = tableArrayLen(fields) orelse continue;
+                    if (alen == 0) continue;
+
+                    const et = tableElemType(fields, 0) orelse continue;
+                    if (et.tag != .atom) continue;
+
+                    try out.append(alloc, ast.atomName(et.tag.atom));
+                }
+            }
+        },
+
+        .bool => {
+            var saw_true = false;
+            var saw_false = false;
+
+            for (covers) |c| switch (c) {
+                .atom => |name| {
+                    const bare = ast.atomName(name);
+                    if (std.mem.eql(u8, bare, "true")) saw_true = true;
+                    if (std.mem.eql(u8, bare, "false")) saw_false = true;
+                },
+                else => {},
+            };
+
+            if (!saw_true) try out.append(alloc, "true");
+            if (!saw_false) try out.append(alloc, "false");
+        },
+
+        .atom => |name| {
+            for (covers) |c| switch (c) {
+                .atom => |cover| {
+                    if (std.mem.eql(u8, ast.atomName(cover), ast.atomName(name))) return;
+                },
+                else => {},
+            };
+
+            try out.append(alloc, ast.atomName(name));
+        },
+
+        else => {},
+    }
+}
+
+/// source pattern covering one uncovered tag
+/// , `:tag` for plain atoms and bools
+/// , `{:tag, _, ...}` for tuple variants
+/// , null when the shape is not nameable and `_` must cover it
+/// , tags are plain names as returned by uncoveredTags
+/// , caller owns the returned slice
+pub fn suggestArmPattern(alloc: std.mem.Allocator, subject: TypeInfo, tag: []const u8) !?[]const u8 {
+    switch (subject.tag) {
+        .@"union" => |us| {
+            for (us) |v| {
+                if (!unionVariantTagEql(v, tag)) continue;
+                if (v.types.len == 0) return null;
+
+                if (v.types[0].tag == .atom) {
+                    return try alloc.print( ":{s}", .{tag});
+                }
+
+                if (v.types[0].tag == .table) {
+                    const fields = v.types[0].tag.table.fields orelse return null;
+                    const alen = tableArrayLen(fields) orelse return null;
+                    if (alen == 0) return null;
+
+                    // positional only, named shapes fall back to `_`
+                    if (fields.len != alen) return null;
+                    if (alen == 1) return try alloc.print( "{{:{s}}}", .{tag});
+
+                    var buf = try std.ArrayList(u8).initCapacity(alloc, 8 + alen * 3);
+                    errdefer buf.deinit(alloc);
+
+                    try buf.appendSlice(alloc, "{:");
+                    try buf.appendSlice(alloc, tag);
+
+                    for (0..alen - 1) |_| try buf.appendSlice(alloc, ", _");
+
+                    try buf.append(alloc, '}');
+                    return try buf.toOwnedSlice(alloc);
+                }
+
+                return null;
+            }
+
+            return null;
+        },
+
+        .bool => return try alloc.print( ":{s}", .{tag}),
+        .atom => return try alloc.print( ":{s}", .{tag}),
+
+        else => return null,
+    }
+}
+
+/// source pattern covering a concrete table subject
+/// , `{_, _, ...}` with one `_` per array element, `{}` for empty
+/// , null when the shape is unknown and `_` must cover it
+/// , caller owns the returned slice
+pub fn suggestTablePattern(alloc: std.mem.Allocator, subject: TypeInfo) !?[]const u8 {
+    if (subject.tag != .table) return null;
+
+    const alen = tableArrayLen(subject.tag.table.fields) orelse return null;
+    if (alen == 0) return try alloc.dupe(u8, "{}");
+
+    var buf = try std.ArrayList(u8).initCapacity(alloc, 2 + alen * 3);
+    errdefer buf.deinit(alloc);
+    try buf.append(alloc, '{');
+
+    for (0..alen) |i| {
+        if (i > 0) try buf.appendSlice(alloc, ", ");
+        try buf.append(alloc, '_');
+    }
+
+    try buf.append(alloc, '}');
+    return try buf.toOwnedSlice(alloc);
+}
+
+test matchCoversAll {
+    // wildcard and never
+    try std.testing.expect(matchCoversAll(.{ .tag = .never }, &.{}));
+    try std.testing.expect(matchCoversAll(.{ .tag = .number }, &.{.wildcard}));
+    try std.testing.expect(!matchCoversAll(.{ .tag = .number }, &.{}));
+    try std.testing.expect(!matchCoversAll(.{ .tag = .number }, &.{.other}));
+    try std.testing.expect(matchCoversAll(.{ .tag = .any }, &.{.wildcard}));
+    try std.testing.expect(!matchCoversAll(.{ .tag = .any }, &.{.other}));
+
+    // atom union needs every tag
+    const ok: TypeInfo = .{ .tag = .{ .atom = ":ok" } };
+    const err: TypeInfo = .{ .tag = .{ .atom = ":err" } };
+    const ok_types = [_]TypeInfo{ok};
+    const err_types = [_]TypeInfo{err};
+    const variants = [_]UnionVariant{
+        .{ .name = "", .types = &ok_types },
+        .{ .name = "", .types = &err_types },
+    };
+    const subject: TypeInfo = .{ .tag = .{ .@"union" = &variants } };
+    try std.testing.expect(matchCoversAll(subject, &.{
+        .{ .atom = ":ok" },
+        .{ .atom = ":err" },
+    }));
+    try std.testing.expect(!matchCoversAll(subject, &.{.{ .atom = ":ok" }}));
+    try std.testing.expect(matchCoversAll(subject, &.{.wildcard}));
+    //
+    // bool and single atom
+    try std.testing.expect(matchCoversAll(.{ .tag = .bool }, &.{
+        .{ .atom = ":true" },
+        .{ .atom = ":false" },
+    }));
+    try std.testing.expect(!matchCoversAll(.{ .tag = .bool }, &.{.{ .atom = ":true" }}));
+    try std.testing.expect(matchCoversAll(
+        .{ .tag = .{ .atom = ":ok" } },
+        &.{.{ .atom = ":ok" }},
+    ));
+    try std.testing.expect(!matchCoversAll(
+        .{ .tag = .{ .atom = ":ok" } },
+        &.{.{ .atom = ":err" }},
+    ));
+    //
+    // ascribed covers when subject fits
+    try std.testing.expect(matchCoversAll(
+        .{ .tag = .number },
+        &.{.{ .ascribed = .{ .tag = .number } }},
+    ));
+    try std.testing.expect(matchCoversAll(
+        .{ .tag = .number },
+        &.{.{ .ascribed = .{ .tag = .any } }},
+    ));
+    try std.testing.expect(!matchCoversAll(
+        .{ .tag = .number },
+        &.{.{ .ascribed = .{ .tag = .string } }},
+    ));
+    //
+    // tables need one shape hit, same length and every element hits
+    const num_ti: TypeInfo = .{ .tag = .number };
+    const ok_ti: TypeInfo = .{ .tag = .{ .atom = ":ok" } };
+    const pair_fields = [_]RecordField{
+        .{ .name = "0", .field_type = num_ti },
+        .{ .name = "1", .field_type = ok_ti },
+    };
+    const pair: TypeInfo = .{ .tag = .{ .table = .{ .key = null, .value = &ANY_TI, .fields = &pair_fields } } };
+    const pair_elems = [_]MatchCover{ .wildcard, .{ .atom = ":ok" } };
+    try std.testing.expect(matchCoversAll(pair, &.{.{ .table = &pair_elems }}));
+
+    // literal never covers its domain
+    const lit_elems = [_]MatchCover{ .number, .{ .atom = ":ok" } };
+    try std.testing.expect(!matchCoversAll(pair, &.{.{ .table = &lit_elems }}));
+
+    // length mismatch never covers
+    const short_elems = [_]MatchCover{.wildcard};
+    try std.testing.expect(!matchCoversAll(pair, &.{.{ .table = &short_elems }}));
+
+    // single binder covers a single table
+    const one_fields = [_]RecordField{
+        .{ .name = "0", .field_type = ok_ti },
+    };
+    const one: TypeInfo = .{ .tag = .{ .table = .{ .key = null, .value = &ANY_TI, .fields = &one_fields } } };
+    try std.testing.expect(matchCoversAll(one, &.{.{ .table = &short_elems }}));
+}
+
+test "types: TypeInfo equality" {
+    const int_type: TypeInfo = .{ .tag = .number };
+    const any_type: TypeInfo = .{ .tag = .any };
+
+    try std.testing.expect(int_type.eql(.{ .tag = .number }));
+    try std.testing.expect(any_type.eql(.{ .tag = .any }));
+}
+
+test "types: table interning dedups exact shapes only" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var table = TypeTable.init(arena.allocator());
+    defer table.deinit();
+
+    const n1 = try table.intern(.{ .tag = .number });
+    const n2 = try table.intern(.{ .tag = .number });
+    try std.testing.expectEqual(n1, n2);
+
+    const s = try table.intern(.{ .tag = .string });
+    try std.testing.expect(n1 != s);
+
+    // subtyping eql is not interning identity: any stays its own id
+    const a = try table.intern(.{ .tag = .any });
+    try std.testing.expect(a != n1);
+    try std.testing.expect(eqlExact(table.get(a), .{ .tag = .any }));
+
+    // same spelling twice shares one entry, table owns the copy
+    const name = try arena.allocator().dupe(u8, "ok");
+    const at1 = try table.intern(.{ .tag = .{ .atom = name } });
+    const at2 = try table.intern(.{ .tag = .{ .atom = "ok" } });
+    try std.testing.expectEqual(at1, at2);
+    try std.testing.expectEqualStrings("ok", table.get(at1).tag.atom);
+}
+
+test "types: numeric type check" {
+    try std.testing.expect(.{ .tag = .number }.tag == .number);
+    try std.testing.expect(.{ .tag = .string }.tag != .number);
+    try std.testing.expect(.{ .tag = .any }.tag != .number);
+}
+
+test "types: type coercion" {
+    try std.testing.expect(canCoerce(.{ .tag = .number }, .{ .tag = .number }));
+    try std.testing.expect(!canCoerce(.{ .tag = .string }, .{ .tag = .number }));
+    try std.testing.expect(canCoerce(.{ .tag = .number }, .{ .tag = .any })); // anything to any
+    try std.testing.expect(canCoerce(.{ .tag = .any }, .{ .tag = .number })); // any to anything (optimistic)
+}
+
+test "types: binary op inference - arithmetic" {
+    const add = inferBinaryOp(.add, .{ .tag = .number }, .{ .tag = .number });
+    try std.testing.expect(add.eql(.{ .tag = .number }));
+}
+
+test "types: binary op inference - comparison" {
+    const cmp = inferBinaryOp(.eq, .{ .tag = .number }, .{ .tag = .number });
+    try std.testing.expect(cmp.eql(.{ .tag = .bool }));
+
+    const cmp2 = inferBinaryOp(.lt, .{ .tag = .number }, .{ .tag = .number });
+    try std.testing.expect(cmp2.eql(.{ .tag = .bool }));
+}
+
+test "types: empty atom sentinel coercion" {
+    const empty_atom: TypeInfo = .{ .tag = .{ .atom = "" } };
+    const named_atom: TypeInfo = .{ .tag = .{ .atom = ":foo" } };
+    try std.testing.expect(canCoerce(empty_atom, named_atom));
+    try std.testing.expect(canCoerce(named_atom, empty_atom));
+    try std.testing.expect(canCoerce(empty_atom, empty_atom));
+}
+
+test "types: unary op inference" {
+    const negate_int = inferUnaryOp(.negate, .{ .tag = .number });
+    try std.testing.expect(negate_int.eql(.{ .tag = .number }));
+
+    const not_bool = inferUnaryOp(.not, .{ .tag = .bool });
+    try std.testing.expect(not_bool.eql(.{ .tag = .bool }));
+}

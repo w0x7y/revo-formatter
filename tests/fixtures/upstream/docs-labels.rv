@@ -1,0 +1,26 @@
+# break out of an outer loop from inside a nested one
+let r = 0
+loop/outer do
+    for i in 0..5 do
+        if i == 3 break/outer(r)
+        r = r + 1
+    end
+end
+print(r) # 3 (iterations i=0,1,2 before break)
+
+# skip to the next iteration of the outer loop
+let s = 0
+let i = 0
+while/a i < 5 do
+    i = i + 1
+    if i == 3 continue/a
+    s = s + i
+end
+print(s) # 12 (1 + 2 + 4 + 5)
+
+# labeled do-blocks act as one-shot loops you can break from
+let v = do/b
+    let x = 21
+    break/b(x * 2)
+end
+print(v) # 42

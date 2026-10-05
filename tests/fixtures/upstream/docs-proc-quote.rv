@@ -1,0 +1,5 @@
+proc unless!(iter) do
+  let cond = iter:next()
+  let body = iter:next()
+  {`{:if_expr, %cond, %body, {:nil}}`}
+end

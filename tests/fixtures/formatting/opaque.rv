@@ -1,0 +1,18 @@
+#!
+module é 日本語
+!#
+# line é
+## block
+  retains internal whitespace ##
+#* function documentation *#
+fn f() do
+let escaped="é\n\"\\\#{literal} #{1+2}"
+let single='#{literal}
+  internal '
+let multi="""
+    hello
+      日本語
+    """
+let quote=`fn(x) %value`
+escaped
+end

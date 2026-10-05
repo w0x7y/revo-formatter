@@ -1,0 +1,5 @@
+const a = if 1 == 1
+    5
+else
+    42
+print(a) # 5

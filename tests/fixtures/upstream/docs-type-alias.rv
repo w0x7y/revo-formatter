@@ -1,0 +1,4 @@
+type Result = {:ok, any} | {:err, atom}
+
+fn safe_div(a, b) -> Result
+    if b == 0 {:err, :DivByZero} else {:ok, a / b}

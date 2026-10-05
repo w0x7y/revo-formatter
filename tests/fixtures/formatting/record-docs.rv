@@ -1,0 +1,5 @@
+type Fields={
+#* display name *# name: string,
+#* older note *# #* current note *# ?count: int,
+#* positional value *# number
+}

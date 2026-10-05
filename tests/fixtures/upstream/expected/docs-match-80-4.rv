@@ -1,0 +1,19 @@
+let x = 1
+const r = match x
+    | 1 => "one"
+    | 2 => "two"
+    | _ => "other" # wildcard
+
+# guards with when
+let score = 75
+const tier = match score
+    | v when v >= 90 => "A"
+    | v when v >= 70 => "B"
+    | v => "C"
+
+# really useful for result tables
+fn safe_div(a, b) if b == 0 {:err, :DivByZero} else {:ok, a / b}
+
+match safe_div(10, 0)
+    | {:ok, v} => print(v)
+    | {:err, e} => print(fmt("error: %v", e))

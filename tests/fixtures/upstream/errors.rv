@@ -1,0 +1,44 @@
+#!/usr/bin/env revo
+ ✖ 
+ ✖  error gallery for revo
+ ✖
+!#
+
+let {good, bad} = {{:ok, "asdf"}, {:err, :Boom}}
+
+{:err, :Boom}?
+# they all panic
+fn boom() do
+	const res = fn() {:err, :Boom}
+	res()?
+	res():unwrap()
+	res() orelse "<not found>"
+
+	res():unwrap()
+	{:err, :Unlucky}:unwrap()
+
+	number("a")?
+end
+
+boom():unwrap()
+
+# there are all equal to 42
+# TODO: add good and_then patterns
+{:err, "e"} orelse 42
+{:ok, 42} orelse 67
+:nil orelse 42
+
+const x = 123 |> inspect
+
+# this one returns an error if file does not exist
+# then tries to read it
+const contents = fs.open("readme.md")?:read() orelse "default content"
+
+"readme.md"
+	|> fs.open
+	|> unwrap
+	|> file.read
+	|> string.split("\n")
+	|> len
+	|> fn(c) c * 2
+	|> inspect

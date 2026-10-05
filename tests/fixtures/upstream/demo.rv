@@ -1,0 +1,544 @@
+#!/usr/bin/env revo
+ α
+ β  revo's demo
+ γ  try running it
+ δ
+!#
+
+#*
+this is a doc-comment, markdown goes here
+you can run `revo doc demo.rv` to get them in a readable markdown format
+*#
+fn the_basics() do
+  print("the basics")
+
+  const n = 42
+  const f = 3.14
+  print(n, f)
+
+  # strings;
+  #   double quotes process escapes, single quotes are literal
+  #   string methods are called with :method syntax
+  const s = "hello"
+  const multiline_str = "
+  any string is multiline
+  "
+  const triple_quoted = """
+  triple-quoted strings strip leading whitespace
+  """
+  print(s, "HELLO":lower(), "hello":upper(), "a,b,c":split(","))
+
+  # atoms;
+  #   static symbols, like numbers if they were represented with words
+  print(:ok, :false, :nil)
+
+  # falsey values are :false, 0, :nil, everything else is true
+  print(not :false, not 0, not :nil, not "hi")
+
+  # tables;
+  #   a hybrid array plus hash, accessed with [] and .field
+  #   sort of like lua, but keys are atoms
+  const arr = {1, 2, 3}
+  const hash = {k = "v", x = 10}
+  print(arr, hash, arr[0], hash.k)
+
+  # tables;
+  #   sequences, indexed at 0
+  const tup = {1, 2, 3}
+  print(tup[0])
+  # destructuring with {a, b} = table
+  const {x, y} = {10, 20}
+  print(x, y)
+
+  # let = mutable, const = immutable
+  let mut = 1
+  mut = 2
+  const immut = 42
+
+  print(1 + 2 * 3, 10 / 2, -(3 + 4))
+  print(1 < 2, 1 == 1, 1 != 2)
+  # and/or preserve value, not just boolean
+  print(1 and 2, 0 or 9)
+end
+
+fn functions() do
+  print("\nfunctions")
+
+  # fn name(args) body: top-level function declaration
+  fn add(a, b) a + b
+  print(add(1, 2))
+
+  # const name = fn(args) body: anonymous function stored in variable
+  const mul = fn(a, b) a * b
+  print(mul(3, 4))
+
+  # multi-statement functions use do ... end blocks
+  fn fact(n) do
+    if n <= 1 1
+    else n * fact(n - 1)
+  end
+  print(fact(5))
+
+  # explicit return: returns immediately from the function
+  fn maybe_double(x) do
+    if x > 100 return x
+    x * 2
+  end
+  print(maybe_double(5))
+  print(maybe_double(150))
+
+  # closures capture by reference: the counter sees mutations from both calls
+  fn make_counter() do
+    let c = 0
+    fn() do
+      c = c + 1
+      c
+    end
+  end
+  const ctr = make_counter()
+  print(ctr(), ctr(), ctr())
+end
+
+# control flow: if/else, match, reduce, loop
+fn control_flow() do
+  print("\ncontrol flow")
+
+  # if/else is an expression: returns value of chosen branch
+  const branch = if 1 < 2 "yes" else "no"
+  print(branch)
+
+  # match is an expression with pattern matching and guards
+  const msg = match 5
+    | 1 => "one"
+    | 2 => "two"
+    | v when v > 3 => "big"
+    | _ => "other"
+  print(msg)
+
+  # match on tables: pattern matching extracts values
+  const result = match {10, "ok"}
+    | {n, "ok"} when n > 5 => "success: " ~ string(n)
+    | {n, "ok"} => "small success"
+    | {_, err} => "error: " ~ err
+  print(result)
+
+  # reduce iterates over a collection, accumulating a result
+  const sum = iter.reduce({0,1,2,3,4}, fn(a,b) a + b, 0)
+  print(sum)
+
+  # loop creates an infinite loop!
+	# break/l returns a value, unlabeled is always :loop
+  const loop_result = loop/l do
+    if :true
+			break/l 42
+  end
+
+  print(loop_result)
+end
+
+# tables: do-end blocks as values, destructuring
+fn tables_destructure() do
+  print("\ntables")
+
+  # do-end blocks evaluate to their last expression
+  const block_result = do
+    const x = 10
+    const y = 20
+    x + y
+  end
+  print(block_result)
+
+  # table destructuring;
+  #   unpack into multiple variables
+  const data = {100, "hello", :ok}
+  const {status_code, message, tag} = data
+  print(status_code, message, tag)
+
+  # ignore values with _
+  const {_, _, result} = data
+  print(result)
+
+  # nested destructuring
+  const nested = {{1, 2}, {3, 4}}
+  const {{a, b}, {c, d}} = nested
+  print(a, b, c, d)
+end
+
+# pipes: value |> fn passes value as first arg
+fn pipes() do
+  print("\npipes")
+
+  # value |> fn transforms the value
+  const p1 = 10 |> fn(x) x + 5
+  print(p1)
+
+  # value |> _:method() calls method on piped value
+  const p2 = "hello" |> _:upper()
+  print(p2)
+
+  # with arguments
+  const p3 = "hello" |> _:sub(1, 2)
+  print(p3)
+
+  # _ placeholder gets the left-hand value
+  const obj = {val = 10, inc = fn(self) self.val += 1}
+  obj |> _:inc()
+  print(obj.val)
+
+  # chain multiple pipe operations
+  const chain = {1,2,3,4,5} |> iter.map(fn(x) x * 2) |> iter.reduce(fn(a,b) a + b, 0)
+  print(chain)
+end
+
+fn error_handling() do
+  print("\nerror handling")
+
+  #* functions return ({:ok, value}) or ({:err, error_atom}) instead of exceptions *#
+  fn safe_div(a, b) do
+    if b == 0 {:err, :DivByZero}
+    else {:ok, a / b}
+  end
+
+  # match extracts the value from a result type
+  const ok_val = safe_div(10, 2)
+  const result = match ok_val
+    | {:ok, v} => v
+    | {:err, e} => 0
+
+  # orelse provides a fallback value on error
+  const bad_val = safe_div(10, 0)
+  const fallback = bad_val orelse 0
+
+  print(result, fallback)
+end
+
+#* tables;
+   tables with closures give you fields and methods *#
+fn tables() do
+  print("\ntables")
+
+  # structural types describe a table's shape; annotate bindings
+  # with them and the compiler checks the fields. method fields go
+  # in the type too, so colon calls resolve to them instead of
+  # baselib methods with the same name
+  type Point = { x: number, y: number, mag: function, add: function }
+  # methods are something you call via the colon syntax, `obj:mag()`
+  # that puts `obj` as the first argument (`self`, in this case)
+  fn mag(self: Point) self.x * self.x + self.y * self.y
+  fn add(self: Point, other: Point) -> Point {
+    x = self.x + other.x,
+    y = self.y + other.y,
+    mag = mag,
+    add = add,
+  }
+
+  let p1: Point = { x = 3, y = 4, mag = mag, add = add }
+  let p2: Point = { x = 1, y = 2, mag = mag, add = add }
+  let p3 = p1:add(p2)
+
+  print(p1.x, p1:mag(), p3.x, p3.y)
+
+  # another example!
+	#	  mutable counter
+  type Counter = { count: number, inc: function, val: function }
+  fn inc(self: Counter) do self.count += 1 end
+  fn val(self: Counter) self.count
+
+  let c: Counter = { count = 10, inc = inc, val = val }
+  c:inc()
+  c:inc()
+  print(c:val())
+end
+
+#* this is a public, documented table factory *#
+pub fn Hi(field) {
+  field = field,
+  get_field = fn(self) self.field
+}
+
+const t = Hi("hi")
+
+# methods;
+#		calling with :syntax like lua
+#   calling methods with obj:method(args) passes obj as first arg
+#   same as obj.method(obj, args)
+fn methods() do
+  print("\nmethods")
+
+
+  type MethodsCounter = { count: number, inc: function, get: function }
+  fn inc(self: MethodsCounter) do self.count += 1 end
+  fn get(self: MethodsCounter) self.count
+
+  let c: MethodsCounter = { count = 5, inc = inc, get = get }
+  print(c:get())
+  c:inc()
+  print(c:get())
+
+  # method chaining works neatly with pipes
+  const result = c
+    :get()
+    |> fn(x) x * 2
+
+  print(result)
+end
+
+# fibers;
+#   super lightweight concurrency with spawn/join and channels
+fn fibers() do
+  print("\nfibers")
+
+  # spawn runs a function call in a new fiber: runs concurrently
+  fn worker() do
+    let s = 0
+    for i in 0..3 do
+      s = s + i + 1
+    end
+    s
+  end
+
+  const f1 = spawn worker()
+  # for the go programmers:
+  const f2 = spawn (fn() "async result")()
+
+  # join blocks until the fiber completes and returns its result
+  print(join(f1))
+  print(join(f2))
+
+  # channels;
+  #   buffered communication between fibers
+  const ch = chan(2)
+  send(ch, 1)
+  send(ch, 2)
+  print(recv(ch))
+  print(recv(ch))
+end
+
+# nonblocking io;
+#   looks blocking but runs concurrently
+fn nonblocking() do
+  print("\nnonblocking io")
+
+  # revo's async io looks like blocking code but parks the fiber instead
+  # this lets you write synchronous-looking code that runs concurrently
+
+  # simulate async operations
+  #   they look blocking but yield to other fibers
+  fn work1fn() do
+    let r = 0
+    for i in 0..1000 do
+      r = r + i
+    end
+    r
+  end
+  let work1 = spawn work1fn()
+
+  fn work2fn() do
+    let r = 0
+    for i in 0..1000 do
+      r = r + i * 2
+    end
+    r
+  end
+  let work2 = spawn work2fn()
+
+  # both run concurrently;
+  #   join waits for both to complete
+  let r1 = join(work1)
+  let r2 = join(work2)
+  print("concurrent results:", r1, r2)
+
+  # channels coordinate multiple fibers: producer/consumer pattern
+  let jobs = chan(3)
+
+  fn producerfn() do
+    send(jobs, "task1")
+    send(jobs, "task2")
+    send(jobs, "task3")
+  end
+  let producer = spawn producerfn()
+
+  fn consumerfn() do
+    recv(jobs)
+    recv(jobs)
+    recv(jobs)
+  end
+  let consumer = spawn consumerfn()
+
+  join(producer)
+  join(consumer)
+  print("producer/consumer done")
+end
+
+# macros;
+#   compile-time code transformers
+fn macros() do
+  print("\nmacros")
+
+  # TMPL: macro defines a syntax transformation at compile time
+  # TMPL: macro double! `(%x:expr)` `%x * 2`
+  # TMPL: macro twice! `(%x:expr %y:expr)` `%x + %y`
+
+  # TMPL: macro expands to the transformed code
+  # TMPL: print(double!(21))
+  # TMPL: print(twice!(1, 2))
+end
+
+# proc macros;
+#   compile-time procedural code generation
+fn proc_macros() do
+  print("\nproc macros")
+
+  # proc is a compile-time function that receives an AST iterator
+  # it can generate new code at compile time
+  # see examples/proc.rv for detailed usage
+
+  print("see examples/proc.rv for proc macro examples")
+end
+
+# comp;
+#   compile-time evaluation
+fn comp_time() do
+  print("\ncomp")
+
+  # comp evaluates the expression at compile time and embeds the result
+  const config = comp ({
+    version = "1.0",
+    env = "demo",
+      features = {"pipes", "match", "fibers"},
+  })
+
+  print(config.version, config.env, config.features)
+end
+
+# some builtin globals
+fn baselib() do
+  print("\nbaselib")
+
+  # conversion functions
+  print(number("42"), number(3.14))
+  print(string(42), string(:ok))
+
+  # type checking
+    print(typeof(42), typeof("hi"), typeof(:atom), typeof({1,2,3}), typeof({}))
+
+  # inspection
+  const val = 42
+  print(inspect(val))
+
+  # collection functions
+    const mapped = iter.collect(iter.map({1,2,3}, fn(x) x * 2))
+  print(mapped)
+
+  const filtered = iter.collect(iter.filter({1,2,3}, fn(x) x > 1))
+  print(filtered)
+
+  const chained = {1,2,3,4}
+    |> iter.map(fn(x) x * x)
+    |> iter.filter(fn(x) x > 5)
+    |> iter.fold(fn(a, b) a + b)
+  print(chained)
+
+    const summed = iter.reduce({1,2,3,4}, fn(a,b) a + b, 0)
+  print(summed)
+
+  const found = iter.find({1,2,3}, fn(x) x == 2)
+  print(found)
+
+  const all_ok = iter.all?({1,2,3}, fn(x) x > 0)
+  const any_big = iter.any?({1,2,3}, fn(x) x > 2)
+  print(all_ok, any_big)
+
+  # string functions
+  print("  hello  ":trim())
+
+  # table functions
+  const t = {1, 2, 3, a = 10, b = 20}
+  print(t:len(), t:key?("a"))
+  const t2 = t:copy()
+  print(t2)
+end
+
+# modules! to you, they're just tables
+fn modules() do
+  print("\nmodules")
+
+  # import loads a module file
+  # the last expression becomes the module value
+  # modules are cached
+  # same path returns the same table
+  # functions can be modules too
+
+  fn a() do
+    # this is private
+    const a = 10
+    # and this is public
+    pub const hi = 5
+    pub const hey = 15
+  end
+  print("module function: #{a()}")
+
+  # const math_utils = import "lib"
+  # math_utils.add(1, 2)
+
+  # module-private variables stay hidden, only the returned value is exposed
+  # example module structure:
+  # # lib.rv
+  # let private_var = "hidden"
+  # const public_fn = fn(x) x + 1
+  # public_fn  # this becomes the module value
+
+  print("import loads .rv files, see examples/lib.rv")
+end
+
+# tests;
+#   compile and run only with --test flag
+fn run_tests() do
+  print("\ntests")
+
+  fn add(a, b) a + b
+
+  test "pipes work" do
+    const r = 10
+      |> fn(x) x + 5
+
+    expect_eq(r, 15)?
+  end
+
+  # suite groups related tests
+  suite "math" do
+    # useful for defining internal helpers
+    fn mul(a, b) a * b
+
+    test "multiply" do
+      expect_eq(mul(2, 3), 6)?
+    end
+
+    test "add" do
+      expect_eq(add(2, 3), 5)?
+    end
+  end
+end
+
+fn main() do
+  the_basics()
+  functions()
+  control_flow()
+  tables_destructure()
+  pipes()
+  error_handling()
+  tables()
+  methods()
+  fibers()
+  nonblocking()
+  macros()
+  proc_macros()
+  comp_time()
+  baselib()
+  modules()
+  run_tests()
+
+  print("\ndone")
+end
+
+main()

@@ -1,0 +1,4 @@
+fn double(n: int) -> int
+    n * 2
+# error: argument 1 to `double` wants int, got string
+double("hello")
