@@ -93,6 +93,18 @@ no input is specified. `--write` requires file paths and rejects stdin,
 symlinks, and nonregular files. `--check` and `--write` are mutually exclusive.
 There is no directory discovery or configuration file support in this version.
 
+The CLI and library apply conservative input limits before parsing: 262,144
+UTF-8 source bytes, 4,096 expanded lexer tokens, and 32 combined delimiter and
+embedded-source levels. Shared weighted budgets also limit recursive parser
+forms, AST traversal, and layout, including flat operators and postfix chains.
+Interpolation and quasiquote bodies count toward these budgets even though their
+literal bytes remain opaque to formatting. Ordinary literal and comment contents
+count toward the byte limit, without counting their punctuation as syntax.
+Limits apply to generated candidates too; space for a final newline can therefore
+be necessary. A limit failure returns `FormatError::Validation`, or CLI exit code
+2 with no output or batch writes. CLI reads stop after one byte beyond the byte
+limit. See [the exact admission policy](docs/verification/input-limits.md).
+
 Formatted source goes to stdout only in print mode. Check differences and
 errors go to stderr with their input names. Exit codes are:
 

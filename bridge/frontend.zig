@@ -3,6 +3,7 @@ const Parser = @import("../vendor/revo/src/lang/Parser.zig");
 const Lexer = @import("../vendor/revo/src/lang/Lexer.zig");
 const source_metadata = @import("source.zig");
 const compare = @import("compare.zig");
+const input_limits = @import("input_limits.zig");
 const allocator = std.heap.c_allocator;
 pub const Buffer = extern struct { ptr: ?[*]u8 = null, len: usize = 0 };
 const Failure = struct { message: []const u8, offset: usize };
@@ -14,6 +15,22 @@ fn response(value: Response) Buffer {
 }
 export fn revo_free(buffer: Buffer) void {
     if (buffer.ptr) |ptr| allocator.free(ptr[0..buffer.len]);
+}
+// Lexer-only admission check. It must run before any parser or AST traversal.
+export fn revo_preflight(ptr: [*]const u8, len: usize) Buffer {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    input_limits.check(arena.allocator(), ptr[0..len]) catch |err| return response(.{ .validation = switch (err) {
+        error.EmbeddedWorkLimit => "input complexity limit exceeded: decoded lexer work (1048576 bytes)",
+        error.NestingLimit => "input complexity limit exceeded: combined nesting (32)",
+        error.TokenLimit => "input complexity limit exceeded: expanded tokens (4096)",
+        error.ParserLimit => "input complexity limit exceeded: parser score (672)",
+        error.LayoutLimit => "input complexity limit exceeded: layout score (800)",
+        error.TreeLimit => "input complexity limit exceeded: syntax tree score (1536)",
+        error.TraversalLimit => "input complexity limit exceeded: AST traversal score (900)",
+        else => @errorName(err),
+    } });
+    return response(.{});
 }
 fn failure(parsed: Parser.ParseResult) ?Failure {
     return switch (parsed) {

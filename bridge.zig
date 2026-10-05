@@ -4,4 +4,5 @@ comptime {
 }
 test {
     _ = @import("bridge/compare.zig");
+    _ = @import("bridge/input_limits.zig");
 }
