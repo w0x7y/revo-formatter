@@ -225,7 +225,13 @@ impl<'a> Builder<'a> {
                 } else {
                     Doc::Soft(" ")
                 };
-                parts.push(Doc::concat(vec![separator, self.sequence(i + 1, stop)]).indent());
+                // Fit this continuation against the columns remaining after
+                // its operator, independently of hard breaks in other statements.
+                parts.push(
+                    Doc::concat(vec![separator, self.sequence(i + 1, stop)])
+                        .indent()
+                        .group(),
+                );
                 i = stop;
             } else {
                 parts.push(Doc::Text(self.text(i)));

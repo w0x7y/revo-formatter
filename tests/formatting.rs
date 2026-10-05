@@ -253,3 +253,31 @@ fn nested_interpolation_escaped_templates_and_opaque_line_endings() {
         check(source, &expected, FormatOptions::default());
     }
 }
+
+#[test]
+fn binary_groups_fit_independently_of_other_statements() {
+    check(
+        "let x=1+2*3\nlet y=4",
+        "let x = 1 + 2 * 3\nlet y = 4\n",
+        FormatOptions::default(),
+    );
+    check(
+        "fn f() do\nlet x=1+2\nx\nend",
+        "fn f() do\n  let x = 1 + 2\n  x\nend\n",
+        FormatOptions::default(),
+    );
+    let narrow = FormatOptions {
+        line_width: 24,
+        ..FormatOptions::default()
+    };
+    check(
+        "let x=first_argument+second_argument\nlet y=1+2",
+        "let x = first_argument +\n  second_argument\nlet y = 1 + 2\n",
+        narrow,
+    );
+    check(
+        "fn f() do\nlet x=first_value+second_value\nlet y=1+2\ny\nend",
+        "fn f() do\n  let x = first_value +\n    second_value\n  let y = 1 + 2\n  y\nend\n",
+        narrow,
+    );
+}
