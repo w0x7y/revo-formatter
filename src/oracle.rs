@@ -221,6 +221,120 @@ mod tests {
         }
     }
     #[test]
+    fn source_metadata_preserves_nested_labeled_blocks_and_comment_arm_starts() {
+        for (source, token_count, expected) in [
+            (
+                "do/outer let x = do/inner 1 end; x end",
+                14,
+                vec![
+                    ("statement", 0, 38),
+                    ("block", 0, 38),
+                    ("statement", 9, 27),
+                    ("block", 17, 31),
+                    ("statement", 26, 27),
+                    ("statement", 33, 34),
+                ],
+            ),
+            (
+                "match x | ## before ## 1 => 2 | # next\n _ => 3",
+                12,
+                vec![
+                    ("statement", 0, 46),
+                    ("match_arm", 10, 29),
+                    ("match_arm", 32, 46),
+                ],
+            ),
+        ] {
+            let analysis = analyze(source).unwrap();
+            assert_eq!(analysis.tokens.len(), token_count, "{source}");
+            let actual: Vec<_> = analysis
+                .regions
+                .iter()
+                .map(|region| (region.kind.as_str(), region.start, region.end))
+                .collect();
+            assert_eq!(actual, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn source_metadata_keeps_opaque_and_generated_descendants_excluded() {
+        for (source, token_count, expected) in [
+            (
+                "import { \"a\", \"b\" }; let x = 1",
+                11,
+                vec![("statement", 21, 30)],
+            ),
+            ("let x = `do let y = 1 end`", 4, vec![("statement", 0, 26)]),
+            (
+                "let x = \"value #{do let y = 1; y end}\"",
+                4,
+                vec![("statement", 0, 38)],
+            ),
+            ("1 |> 2", 3, vec![]),
+            ("", 0, vec![]),
+            (
+                "#! módulo é !#\n#* 文書 *#\nlet x = \"é\"",
+                6,
+                vec![("statement", 30, 42)],
+            ),
+        ] {
+            let analysis = analyze(source).unwrap();
+            assert_eq!(analysis.tokens.len(), token_count, "{source}");
+            let actual: Vec<_> = analysis
+                .regions
+                .iter()
+                .map(|region| (region.kind.as_str(), region.start, region.end))
+                .collect();
+            assert_eq!(actual, expected, "{source}");
+            for token in analysis.tokens {
+                assert!(
+                    source.get(token.start..token.end).is_some(),
+                    "{source}: {token:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn source_metadata_scales_to_many_statements_and_arms() {
+        for count in [200, 400, 800] {
+            let statements = (0..count)
+                .map(|i| format!("do let x = {i} end"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let analysis = analyze(&statements).unwrap();
+            assert_eq!(analysis.tokens.len(), count * 6);
+            assert_eq!(analysis.regions.len(), count * 3);
+            assert_eq!(
+                analysis
+                    .regions
+                    .iter()
+                    .filter(|r| r.kind == "block")
+                    .count(),
+                count
+            );
+            let arms = format!(
+                "match x {}",
+                (0..count)
+                    .map(|i| format!("| {i} => {i}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+            let analysis = analyze(&arms).unwrap();
+            assert_eq!(analysis.tokens.len(), count * 4 + 2);
+            assert_eq!(analysis.regions.len(), count + 1);
+            let actual: Vec<_> = analysis
+                .regions
+                .iter()
+                .filter(|r| r.kind == "match_arm")
+                .map(|r| &arms[r.start..r.end])
+                .collect();
+            let expected: Vec<_> = (0..count).map(|i| format!("{i} => {i}")).collect();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
     fn preserves_ranges_labels_docs_types_and_nested_position_policy() {
         for (a, b) in [
             ("for x in 1.. do x end", "for x in 1..3 do x end"),
