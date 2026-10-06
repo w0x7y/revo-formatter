@@ -479,12 +479,7 @@ mod tests {
     }
     #[test]
     fn generated_blocks_and_quote_inner_nodes_are_not_source_regions() {
-        for source in [
-            "1 |> 2",
-            "do 1 end |> 2",
-            "import { \"a\", \"b\" }",
-            "`do let x = 1 end`",
-        ] {
+        for source in ["1 |> 2", "import { \"a\", \"b\" }", "`do let x = 1 end`"] {
             let analysis = analyze(source).unwrap();
             assert!(
                 !analysis.regions().iter().any(|r| r.kind == "block"),
@@ -540,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn source_metadata_keeps_opaque_and_generated_descendants_excluded() {
+    fn source_metadata_excludes_opaque_descendants_and_synthetic_hints() {
         for (source, token_count, expected) in [
             (
                 "import { \"a\", \"b\" }; let x = 1",
@@ -601,11 +596,11 @@ mod tests {
             ),
             (
                 "do 1 |> do foo.end end end",
-                vec!["do 1 |> do foo.end end end"],
+                vec!["do 1 |> do foo.end end end", "do foo.end end"],
             ),
             (
                 "do let x = do 1 end |> 2 end",
-                vec!["do let x = do 1 end |> 2 end"],
+                vec!["do let x = do 1 end |> 2 end", "do 1 end"],
             ),
             (
                 "do let x = `do end`; let y = \"#{do 1 end}\" end",
@@ -641,6 +636,34 @@ mod tests {
                     .iter()
                     .any(|r| r.kind == kind && r.start == 0 && r.end == source.len())
             );
+        }
+    }
+
+    #[test]
+    fn piped_source_blocks_retain_only_proven_block_metadata() {
+        for (source, expected) in [
+            ("do 1 end |> 2", vec!["do 1 end"]),
+            (
+                "1 |> do do foo() bar() end baz() end",
+                vec!["do do foo() bar() end baz() end", "do foo() bar() end"],
+            ),
+            (
+                "1 |> do fn f() do foo.end end end",
+                vec!["do fn f() do foo.end end end", "do foo.end end"],
+            ),
+            (
+                "1 |> do `do end`; \"#{do 1 end}\" end",
+                vec!["do `do end`; \"#{do 1 end}\" end"],
+            ),
+        ] {
+            let analysis = analyze(source).unwrap();
+            let actual: Vec<_> = analysis
+                .regions()
+                .iter()
+                .map(|r| (r.kind.as_str(), &source[r.start..r.end]))
+                .collect();
+            let expected: Vec<_> = expected.into_iter().map(|block| ("block", block)).collect();
+            assert_eq!(actual, expected, "{source}");
         }
     }
 

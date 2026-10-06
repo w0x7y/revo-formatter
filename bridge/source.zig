@@ -211,7 +211,7 @@ const Collector = struct {
     fn add(self: *Collector, kind: []const u8, start: usize, end: usize) !void {
         if (start >= end or end > self.source.len) return;
         // Require lexical endpoints, excluding spans inside decoded strings or
-        // rewritten quasiquotes. Generated trees never emit layout hints.
+        // rewritten quasiquotes. Synthetic nodes never emit layout hints.
         if (TokenIndex.exact(self.index.starts, start) and TokenIndex.exact(self.index.ends, end))
             try self.result.append(self.alloc, .{ .kind = kind, .start = start, .end = end });
     }
@@ -227,10 +227,14 @@ const Collector = struct {
         if (node_.expr == .quasiquote or self.index.insideOpaque(node_.span.start)) return node_.span.end;
         if (node_.expr == .block) {
             const opener = self.blockOpener(node_);
-            if (emit and opener != null) try self.add("block", node_.span.start, node_.span.end);
+            // Concrete block facts remain valid beneath generated wrappers and
+            // supply Rust's only block-pairing authority. The emit flag still
+            // suppresses synthetic statement/header hints in those subtrees.
+            if (opener != null) try self.add("block", node_.span.start, node_.span.end);
             var end = node_.span.end;
             for (node_.expr.block) |child| {
-                // Generated trees supply completion only, never source hints.
+                // Keep generated statement/header hints suppressed while walking
+                // through to any independently proven source blocks.
                 const child_end = if (emit and opener != null) try self.statement(child) else try self.visitNode(child, false);
                 end = @max(end, child_end);
             }

@@ -107,11 +107,29 @@ fn final_nested_blocks_complete_their_owning_declarations() {
         ("do do end end", "do do end end\n"),
         (
             "do\n1 |> do\nfoo.end\nend\nend",
-            "do\n  1 |> do foo.end end\nend\n",
+            "do\n  1 |>\n    do\n      foo.end\n    end\nend\n",
         ),
     ] {
         check(source, expected, FormatOptions::default());
     }
+}
+
+#[test]
+fn piped_long_block_bodies_keep_their_indentation_scope() {
+    check(
+        "do\n1 |> do\nfirst_function_with_long_name()\nsecond_function_with_long_name()\nthird_function_with_long_name()\nend\nend",
+        "do\n  1 |>\n    do\n      first_function_with_long_name()\n      second_function_with_long_name()\n      third_function_with_long_name()\n    end\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn piped_nested_blocks_keep_their_hierarchical_scopes() {
+    check(
+        "do\n1 |> do\ndo\nfoo()\nbar()\nend\nbaz()\nend\nafter()\nend",
+        "do\n  1 |>\n    do\n      do\n        foo() bar()\n      end\n      baz()\n    end\n  after()\nend\n",
+        FormatOptions::default(),
+    );
 }
 
 #[test]
@@ -125,7 +143,7 @@ fn nested_block_completion_and_generated_pipes_fit_a_two_mib_stack() {
                 assert_preserved_and_idempotent(&source, &output, &FormatOptions::default());
             }
             // Lowered pipe blocks now contribute descendant completion while
-            // continuing to suppress all generated source hints.
+            // retaining real block facts and suppressing synthetic hints.
             let source = format!("do {} do foo.end end end", "1 |> ".repeat(80));
             let output = format(&source, &FormatOptions::default()).unwrap();
             assert_preserved_and_idempotent(&source, &output, &FormatOptions::default());
