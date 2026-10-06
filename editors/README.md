@@ -3,11 +3,13 @@
 These packages add whole-buffer formatting and Revo file recognition. Install
 the package for your editor, then select an installed `revofmt` executable.
 Both `.rv` and `.revo` files use the Revo language. Format-on-save is opt-in.
-Build the CLI first; installing an editor package does not install the formatter.
+The standalone [Neovim plugin](https://github.com/w0x7y/revofmt.nvim) offers a
+verified binary installer. The packages in this checkout use a separately
+installed formatter; installing these local packages does not install the CLI.
 
 | Editor | Package and installation | Formatting entry point |
 | --- | --- | --- |
-| Neovim >=0.10 | [Lua plugin](neovim/README.md) | `:RevoFormat` |
+| Neovim >=0.10 | [Standalone plugin](https://github.com/w0x7y/revofmt.nvim), or [local Lua package](neovim/README.md) | `:RevoFormat` |
 | VS Code >=1.85 | [VSIX extension](vscode/README.md) | Format Document |
 | Zed | [Dev extension and settings](zed/README.md) | Format Buffer |
 
@@ -18,7 +20,8 @@ tooling. The packages have not been published to editor registries.
 
 ## Install the formatter
 
-Build the CLI using the [root build instructions](../README.md#build-from-source).
+Use a prebuilt binary from the [versioned releases](https://github.com/w0x7y/revo-formatter/releases),
+or build the CLI using the [root build instructions](../README.md#build-from-source).
 The verified binary platform is native Linux x86_64 GNU. Editor APIs may run
 on other systems, but this repository does not provide or verify formatter
 binaries for them.

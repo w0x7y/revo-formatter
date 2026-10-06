@@ -4,6 +4,17 @@ A standalone Lua plugin for Neovim **0.10 or newer**. It formats the complete
 current unsaved buffer through an installed `revofmt`, recognizes `.rv` and
 `.revo`, and registers `:RevoFormat`. There are no Lua dependencies.
 
+For normal plugin-manager installation, use the standalone
+[revofmt.nvim repository](https://github.com/w0x7y/revofmt.nvim). Its lazy.nvim
+install hook or `:RevoFmtInstall` downloads a pinned, checksum-verified formatter,
+and `:checkhealth revofmt` diagnoses setup. The downloadable binary currently
+supports Linux x86_64 GNU with glibc >=2.34. That plugin needs no formatter
+checkout or local Rust/Zig toolchain.
+
+This directory retains the self-contained local adapter and its regression
+checks. Its commands and executable settings are documented below; managed
+installation belongs to the standalone plugin.
+
 Build or install the CLI first using the [repository instructions](../../README.md#build-from-source).
 The verified binary platform is native Linux x86_64 GNU. Running the compiled
 binary does not require Zig; building it requires the repository's exact pinned

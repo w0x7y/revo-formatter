@@ -9,7 +9,7 @@ The initial supported and verified build platform is native
 `x86_64-unknown-linux-gnu`. The build rejects other host/target combinations.
 Other platforms need separate build and ABI validation.
 
-Locally installable integrations provide formatting and file recognition for
+Editor integrations provide formatting and file recognition for
 [Neovim](editors/neovim/README.md), [VS Code](editors/vscode/README.md), and
 [Zed](editors/zed/README.md). They format unsaved buffers through an installed
 `revofmt`; save formatting is opt-in. Start with the
@@ -27,6 +27,19 @@ Locally installable integrations provide formatting and file recognition for
 | `scripts/` | Repository verification commands |
 | `docs/` | Current guides, designs, plans, and verification records |
 | `research/` | Dated upstream investigations |
+
+## Install a prebuilt formatter
+
+Download `revofmt-linux-x86_64-gnu` and its checksum/license files from the
+[versioned releases](https://github.com/w0x7y/revo-formatter/releases).
+The current binary requires Linux x86_64 GNU with glibc >=2.34 and normal system
+libraries, including `libgcc_s`. Verify `SHA256SUMS` from the download directory,
+make the binary executable, then put it on PATH or use its absolute path.
+Running it requires no Rust, Zig or Revo installation.
+
+For Neovim, use [revofmt.nvim](https://github.com/w0x7y/revofmt.nvim). Its lazy.nvim
+install hook downloads and verifies the formatter automatically. Start with that
+plugin's quick-start guide; a formatter repository checkout is unnecessary.
 
 ## Build from source
 
