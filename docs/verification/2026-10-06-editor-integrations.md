@@ -63,7 +63,11 @@ The Neovim follow-up came from a focused coordinator probe: a signal-terminated
 tests reproduced the unsafe acceptance before the transport began rejecting
 signals in both synchronous and asynchronous modes.
 
-The final whole-branch review is pending at this recorded stage.
+The [fresh whole-branch review](2026-10-06-editor-review.md) covered
+`e048b7d5..520f2374` and approved the branch with no Critical, Important or Minor
+findings. Its remaining recommendations concern future native host smoke tests
+and Neovim 0.10 coverage. Final bookkeeping adds this result without changing
+the reviewed runtime code.
 
 ## Decisions and limits
 

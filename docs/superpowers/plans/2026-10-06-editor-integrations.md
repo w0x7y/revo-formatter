@@ -67,4 +67,4 @@
 - [x] Add a concise root directory map and link the editor packages. Document shared CLI/error/EOL contracts once and keep editor-specific installation next to the package.
 - [x] Add one editor verification command invoking each actual package runner with `REVOFMT_BIN`, and ignore generated dependencies/packages and implementation scratch files.
 - [x] Run all editor checks and package validation. Run the full README verification: Rust all-target tests/doctests/clippy/fmt/release build, Zig fmt/filtered bridge tests, vendor and corpus checksum manifests from their directories.
-- [ ] Dispatch a fresh whole-branch reviewer over all implementation changes; fix substantive findings and re-review fixes. Record actual verification results and limitations in a dated report, link current guides, and commit the final navigation/documentation work.
+- [x] Dispatch a fresh whole-branch reviewer over all implementation changes; fix substantive findings and re-review fixes. Record actual verification results and limitations in a dated report, link current guides, and commit the final navigation/documentation work.
