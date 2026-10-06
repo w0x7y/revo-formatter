@@ -1,5 +1,12 @@
 # Architecture follow-up design
 
+Approved design for the completed architecture follow-up stage of 2026-10-06.
+Findings and constraints below record that stage. Later work hardened block
+admission before recursive layout. Use the [documentation index](../../README.md)
+for current instructions, the [architecture](../../architecture.md) for delivered
+ownership, and the [later source/editor check](../../verification/2026-10-06-editor-final-check.md)
+for later verification and its limits.
+
 The user requested an architecture scan followed by implementation of its
 findings, without a visual report or a candidate-selection step. The review
 starts at `aea81c06` and weights recent editor and layout changes.

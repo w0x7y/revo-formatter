@@ -10,7 +10,7 @@
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
-- [Architecture follow-up verification](verification/2026-10-06-architecture-followup.md): current source/editor checks, block ownership, launcher fix and review status.
+- [Documentation handoff](verification/2026-10-06-documentation-handoff.md): latest verification evidence, documentation coverage, local packages and merge preparation.
 
 ## Plans and original designs
 
@@ -24,7 +24,7 @@ guides above for new work.
 | Initial architecture deepening | [Original design](superpowers/specs/2026-10-05-architecture-deepening-design.md) | [Completed plan](superpowers/plans/2026-10-05-architecture-deepening.md) |
 | Formatting rules | User examples and reproduced regressions | [Completed plan](superpowers/plans/2026-10-05-formatting-rules.md) |
 | Layout scopes and document fitting | Findings recorded in the plan | [Completed plan](superpowers/plans/2026-10-06-layout-depth.md) |
-| Editor integrations | [Approved design](superpowers/specs/2026-10-06-editor-integrations-design.md) | [Implementation plan](superpowers/plans/2026-10-06-editor-integrations.md) |
+| Editor integrations | [Approved design](superpowers/specs/2026-10-06-editor-integrations-design.md) | [Completed plan](superpowers/plans/2026-10-06-editor-integrations.md) |
 | Architecture follow-up | [Approved design](superpowers/specs/2026-10-06-architecture-followup-design.md) | [Completed plan](superpowers/plans/2026-10-06-architecture-followup.md) |
 
 ## Historical verification
@@ -40,7 +40,11 @@ reports do not retroactively rerun or replace those measurements.
 - [Layout deepening verification](verification/2026-10-06-layout-depth.md)
 - [Final source check before the architecture follow-up](verification/2026-10-06-final-check.md)
 - [Editor integration verification](verification/2026-10-06-editor-integrations.md)
+- [Editor integration review](verification/2026-10-06-editor-review.md)
 - [VS Code activation follow-up](verification/2026-10-06-vscode-activation.md)
+- [VS Code activation review](verification/2026-10-06-vscode-activation-review.md)
+- [Architecture follow-up verification](verification/2026-10-06-architecture-followup.md)
+- [Editor final check](verification/2026-10-06-editor-final-check.md): admission and timeout repairs, repository security review and verification limits.
 
 ## Pinned upstream research
 

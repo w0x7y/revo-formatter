@@ -21,16 +21,21 @@ require('revofmt').setup({
 })
 ```
 
-For a plugin manager, use the Neovim package directory inside the monorepo,
-not the repository root. For example, with lazy.nvim and a local checkout:
+For lazy.nvim, save this as a module in the `lua/plugins/` directory that your
+configuration imports, for example `lua/plugins/revofmt.lua`. Point `dir` to
+the Neovim package inside the checkout:
 
 ```lua
-{
-  dir = '/absolute/path/to/revo-formatter/editors/neovim',
-  name = 'revofmt',
-  config = function()
-    require('revofmt').setup({ executable = '/absolute/path/to/revofmt' })
-  end,
+return {
+  {
+    dir = '/absolute/path/to/revo-formatter/editors/neovim',
+    name = 'revofmt',
+    config = function()
+      require('revofmt').setup({
+        executable = '/absolute/path/to/revo-formatter/target/release/revofmt',
+      })
+    end,
+  },
 }
 ```
 
@@ -40,6 +45,10 @@ directories must be directly inside that directory. Default command registration
 works without a setup call. Repeated `setup` calls replace configuration and save
 hooks without duplicating them. Loading the plugin preserves setup already made
 in your init file. Existing nonempty filetype assignments are respected.
+
+Open a `.rv` or `.revo` file and check `:set filetype?`; it should report `revo`.
+If another plugin has assigned a different filetype, select it explicitly with
+`:set filetype=revo` before relying on this plugin's save hook.
 
 ## Configuration and use
 
@@ -65,13 +74,17 @@ require('revofmt').format({ bufnr = 0, async = false })
 
 `format` returns `true` when an asynchronous request starts or synchronous
 formatting succeeds. Immediate or synchronous failure returns `false, message`.
-Asynchronous errors are reported through `vim.notify`. Formatter errors include
+Errors are also reported through `vim.notify`. Formatter errors include bounded
 CLI stderr. A new request supersedes the previous request for that buffer.
 
 Set `format_on_save = true` to install a bounded synchronous `BufWritePre` hook
 for buffers with filetype `revo`. The same save writes the formatting result. A
 formatter failure leaves the buffer untouched and the save writes the user's
 source. Manual formatting is asynchronous by default and does not write files.
+
+Other save hooks can modify the source independently of this plugin. Avoid
+whitespace cleanup hooks for Revo when they would change opaque literal or
+comment contents.
 
 ## Bytes, buffers, and lifecycle
 
@@ -94,15 +107,24 @@ continues to govern subsequent native file writes.
 
 Before applying a result, the plugin checks the request generation, changedtick,
 loaded/modifiable state, and serialization options. Edits, buffer deletion or
-unloading, option changes, superseded requests, timeouts, signal termination, subprocess errors, and
-unrepresentable output leave the buffer untouched. Changed lines are applied as
-one minimal contiguous replacement, preserving native undo and displayed views
+unloading, option changes, superseded requests, timeouts, signal termination,
+subprocess errors, and unrepresentable output leave the buffer untouched.
+Changed lines are applied as one minimal contiguous replacement, preserving
+native undo and displayed views
 where possible; cursor positions are clamped naturally if a line becomes shorter.
 
-Subprocess stdout is capped at the CLI's 262,144-byte admission limit and stderr
-at 65,536 bytes. Excess output and timeouts terminate the child process. Process
-execution uses an executable plus arguments directly; paths containing spaces
-are supported and shell expressions are never evaluated.
+The plugin rejects source above 262,144 bytes before launching the formatter.
+Subprocess stdout has the same cap; stderr is capped at 65,536 bytes. The
+transport owns public `vim.uv` pipes and a timer. Excess output, timeouts, and
+cancellation terminate the direct child and close those pipes. A wrapper
+descendant retaining stdout or stderr cannot keep the request pending past its
+deadline while the editor event loop runs. Late output is discarded;
+independently running descendants remain the wrapper's responsibility.
+
+Process execution uses an executable plus arguments directly. Paths containing
+spaces are supported. Shell expressions, `~` and environment-variable expansion
+are not interpreted. Choose an executable you trust; the plugin has no workspace
+trust gate and runs the command with Neovim's privileges.
 
 ## Verification
 
@@ -119,8 +141,14 @@ subprocess tests require Python 3. The suite exercises actual Neovim buffers and
 the real CLI for formatting, idempotence, LF/CRLF and mixed literal bytes, undo,
 view retention, syntax failures, save behavior, and startup/file recognition.
 Controlled subprocess fixtures exercise races, option changes, unloading,
-timeouts, excessive output, and output representation rejection.
+timeouts (including wrappers with inherited pipes), deadline settlement and
+handle cleanup, excessive output, and output representation rejection.
 
-Neovim API references: [vim.system](https://neovim.io/doc/user/lua/#vim.system()),
+The [latest verification record](../../docs/verification/2026-10-06-documentation-handoff.md)
+reports all 32 checks passing on Neovim 0.12.5 with the release CLI. The public
+APIs were reviewed for Neovim 0.10 compatibility, but that minimum version was
+not executed. POSIX subprocess fixtures do not establish Windows support.
+
+Neovim API references: [vim.uv](https://neovim.io/doc/user/luvref/),
 [buffer APIs](https://neovim.io/doc/user/api/#api-buffer), and
 [fileformat](https://neovim.io/doc/user/options/#'fileformat').

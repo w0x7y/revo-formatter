@@ -77,20 +77,20 @@ MIT provenance. Suffixes specify line width and indent width.
 ## Verification and limits
 
 `src/tests/corpus.rs` checks every valid input at widths 24, 80 and 120 with
-indent widths 2 and 4: 120 input/option combinations. Separate tests prove
-reparsing with exact interleaved raw token/comment tape, complete AST equality
+indent widths 2 and 4: 120 input/option combinations. Each result is checked for
+reparsing, exact interleaved raw token/comment tape, complete AST equality
 modulo source coordinates, and second-pass byte identity. There are four
 expected-output cases and one selected invalid fixture checked at all six
 options. Direct whitespace and moved-comment/string-spelling controls prove
 why both preservation checks are necessary. Production validator controls
 also live in `src/lib.rs` and `src/oracle.rs`. See the
 [current verification commands](../../../README.md#development-and-verification)
-and [final source check](../../../docs/verification/2026-10-06-final-check.md).
+and [verification history](../../../docs/README.md#historical-verification).
 After changing this provenance or a reviewed golden, update `SHA256SUMS` from
 its existing file list and verify it from this directory.
 
-Width is soft. Source statement newlines remain boundaries; short expression
-newlines can collapse. Expression bodies without `do` receive their own
+Width is soft. Short expression newlines can collapse, and short block statements
+inside pipe expressions can share a line. Expression bodies without `do` receive their own
 indentation when expanded. Operator chains, including pipes, pack available
 columns at one continuation indentation level. Unary minus stays attached to its
 operand. Parser-sensitive label adjacency is retained, and a validated

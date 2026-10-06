@@ -48,8 +48,8 @@ The source collector owns one token-indexed table of complete block ends. It
 proves an actual block from its AST provenance and source `do` opener, then
 completes descendants child-first in the existing admitted traversal. For a
 nonempty block, it finds the first lexical `end` at or beyond the completed
-descendant extent; an empty block's span already includes its closer. This handles final
-nested blocks and declaration wrappers whose own spans omit their bodies.
+descendant extent; an empty block's span already includes its closer. This handles
+final nested blocks and declaration wrappers whose own spans omit their bodies.
 Missing closers fail metadata collection. A final linear pass extends applicable
 block, statement and body hints from that same table, preserving hint order.
 
@@ -88,11 +88,19 @@ completion checks. The [admission policy](verification/input-limits.md) is the
 authoritative budget reference; changing recursion or the grammar needs renewed
 resource verification.
 
-The [architecture follow-up](verification/2026-10-06-architecture-followup.md)
-records current verification and review status. Earlier
+The [documentation handoff](verification/2026-10-06-documentation-handoff.md)
+records current verification and review status. The
+[architecture follow-up](verification/2026-10-06-architecture-followup.md), earlier
 [final-check results](verification/2026-10-06-final-check.md) and
 [architecture measurements](verification/architecture-deepening.md) are
 stage-specific evidence, not measurements of every later change.
+
+Admission is iterative and lexer-based, with counters shared across decoded
+fragments. Possible `do` introducers consume layout units; their presence also
+couples recursive prefix costs into that budget, including earlier fragments.
+These charges stay separate from the AST traversal operator term. Ordinary
+block-free operator/prefix accounting remains intact. The policy is verified
+through public formatting and preservation on 2 MiB debug/release threads.
 
 ## Editor packages
 
@@ -107,6 +115,12 @@ codec. VS Code separates provider wiring from subprocess execution and text
 edits. Zed uses declarative language registration and native external-formatter
 settings. `editors/README.md` defines their shared stdin/stdout contract;
 `scripts/verify-editors` invokes each package's checks.
+
+Neovim transport owns its subprocess pipes and deadline timer through public
+`vim.uv` APIs. Completion closes the owned streams, so a wrapper's descendant
+holding stdout or stderr cannot delay a timeout or abort a save. Process exit
+and both output EOFs are required for normal success; cancellation, timeout and
+errors settle once and ignore late callbacks.
 
 The CLI owns syntax validation, resource admission, preservation, and
 idempotence. Adapters own transmitting the current buffer and applying a

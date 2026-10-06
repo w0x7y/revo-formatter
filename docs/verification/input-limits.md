@@ -4,6 +4,9 @@ This is the current admission policy for the pinned frontend. See the
 [architecture](../architecture.md) for call ownership and
 [development checks](../../README.md#development-and-verification) for the full
 Rust and local Zig suites, including the `input limits:` filter.
+The [documentation handoff](2026-10-06-documentation-handoff.md) records current
+verification; the [editor final check](2026-10-06-editor-final-check.md) records
+the block-admission failure and its independently reviewed repair.
 
 The public `format` boundary checks resource limits before copying source or
 calling the parser. Every candidate passes the same check before analysis and
@@ -40,9 +43,12 @@ Each score is a conservative lexical estimate, rather than a second parser:
   attribute/doc-comment, assignment/compound assignment, exponent,
   concatenation, `<`, `!`, or `?` token, plus four per maximum nesting level.
 - The layout score charges one per pinned parser infix/logical operator, even
-  when the builder does not reflow it, four per `match`, and four per maximum
-  nesting level. Operators also charged by the parser score remain counted in
-  both budgets: `<`, concatenation and exponentiation have type/associativity
+  when the builder does not reflow it, four per `match` or `do`, and four per
+  maximum nesting level. When any lexical `do` occurs, it also charges two per
+  `fn`/`proc`/`if`/`unless`/`loop`/`for`/`while`/`not` token across the complete
+  fragment worklist. These prefix costs bound their combination with block
+  document frames. Operators also charged by the parser score remain counted
+  in both budgets: `<`, concatenation and exponentiation have type/associativity
   recursion in addition to their AST edges. Assignment and compound assignment
   are bounded by the parser score; ranges and pipes have separate wrapper costs.
 - The syntax tree score counts syntax introducers, with two for declarations,
@@ -51,8 +57,9 @@ Each score is a conservative lexical estimate, rather than a second parser:
   and semicolons cost zero. Other introducers cost one. An interpolated token
   additionally costs three plus its lexer-recorded open count.
 - The AST traversal score starts with half the parser token score, the layout
-  token score, and four per maximum nesting level. It adds one per field/index,
-  ordinary string, possible hugging call, method selector, and
+  operator/`match` token score, and four per maximum nesting level. The layout
+  block/prefix charges apply only to document construction. It adds one per
+  field/index, ordinary string, possible hugging call, method selector, and
   `fn`/`proc`/`if`/`unless`/`match`/`loop`/`for`/`while`; four per range and eight
   per pipe. Interpolated tokens add three plus their open count. Direct anonymous
   and named `fn` signatures consume parentheses without extending receiver
@@ -64,10 +71,27 @@ deliberately reject some large, shallow valid programs. Internal oracle metadata
 tests use trusted source directly, preserving the existing 800-statement and
 800-arm coverage. They are not an additional public entry point.
 
+The `do` charge covers recursive block layout that punctuation depth cannot
+bound. Every lexical `do` counts as a possible introducer, including contextual
+field names, sibling blocks, and blocks in decoded interpolation or quasiquote
+fragments. The check does not pair `do` with `end` or infer grammar. Ordinary
+literal and comment contents stay opaque. Blocks share the layout budget with
+operators, `match`, recursive prefixes, and maximum nesting, so a plain
+`do ... 1 ... end` chain reaches the layout score at 200 blocks. Prefix counters
+are global even before the first `do`; a later block also charges every earlier
+prefix, including prefixes in a previously processed decoded fragment. Sources
+without lexical `do` retain their existing operator and traversal accounting.
+Other forms consume the same global budgets and can lower the admitted block
+count. The block/prefix layout charges do not alter the existing AST traversal
+estimate. This deliberately restricts some shallow programs and combinations
+of individually small decoded bodies.
+
 Thresholds were checked against every pinned fixture and the existing
 800-operand formatting regression, with explicit 2 MiB Rust thread probes.
 Those probes exposed independent parser, layout, and postfix AST traversal
 stack exhaustion, requiring combined scores rather than delimiter-only or
-independent per-form caps. The policy is tied to the pinned frontend and the
-verified native Linux debug/release builds; a grammar or platform change needs
-fresh resource-limit verification.
+independent per-form caps. Ordinary blocks, blocks mixed with pipes, and blocks
+inside decoded bodies are also checked near their shared admission boundary on
+2 MiB debug and release threads. The policy is tied to the pinned frontend and
+the verified native Linux debug/release builds; a grammar or platform change
+needs fresh resource-limit verification.

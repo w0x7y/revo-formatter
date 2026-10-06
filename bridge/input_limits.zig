@@ -5,7 +5,7 @@ const Lexer = @import("../vendor/revo/src/lang/Lexer.zig");
 // iterative; no parser, AST walk, document construction or recursive cleanup runs
 // until this check succeeds. The caller owns the arena containing lexer results.
 const Fragment = struct { source: []const u8, depth: usize };
-const Metrics = struct { tokens: usize = 0, risk: usize = 0, edges: usize = 0, binary: usize = 0, traversal: usize = 0, nesting: usize = 0, work: usize = 0 };
+const Metrics = struct { tokens: usize = 0, risk: usize = 0, edges: usize = 0, binary: usize = 0, blocks: usize = 0, layout_prefixes: usize = 0, traversal: usize = 0, nesting: usize = 0, work: usize = 0 };
 pub fn check(alloc: std.mem.Allocator, source: []const u8) !void {
     var result: Metrics = .{ .work = source.len };
     var pending: std.ArrayList(Fragment) = .empty;
@@ -39,6 +39,14 @@ pub fn check(alloc: std.mem.Allocator, source: []const u8) !void {
                 },
                 else => {},
             }
+            // Possible source blocks deepen document construction without any
+            // punctuation nesting. Charge every lexical introducer globally,
+            // including contextual names and decoded fragments.
+            if (token.type == .kw_do) result.blocks += 4;
+            result.layout_prefixes += switch (token.type) {
+                .kw_fn, .kw_proc, .kw_if, .kw_unless, .kw_loop, .kw_for, .kw_while, .kw_not => 2,
+                else => 0,
+            };
             if (token.type == .kw_match) result.binary += 4;
             // Count every pinned Parser infix/logical operator, including forms
             // the layout builder does not reflow: their ASTs still recurse.
@@ -58,7 +66,10 @@ pub fn check(alloc: std.mem.Allocator, source: []const u8) !void {
                 else => 1,
             };
             if (result.risk + 4 * result.nesting > 672) return error.ParserLimit;
-            if (result.binary + 4 * result.nesting > 800) return error.LayoutLimit;
+            // Block frames compound with recursive prefixes in either token
+            // order. A later block also charges prefixes from earlier fragments.
+            const block_prefixes = if (result.blocks > 0) result.layout_prefixes else 0;
+            if (result.binary + result.blocks + block_prefixes + 4 * result.nesting > 800) return error.LayoutLimit;
             if (result.edges > 1536) return error.TreeLimit;
             // Call/method receiver paths deepen AST traversals even when their
             // parentheses are flat. Count possible hugging postfixes lexically;
@@ -192,4 +203,16 @@ test "input limits: lexer work is bounded before lexing" {
     const source = try arena.allocator().alloc(u8, 1024 * 1024 + 1);
     @memset(source, 'a');
     try std.testing.expectError(error.EmbeddedWorkLimit, check(arena.allocator(), source));
+}
+
+test "input limits: ordinary blocks are rejected before recursive layout" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for ([_]usize{ 300, 336, 201 }) |count| {
+        var source: std.ArrayList(u8) = .empty;
+        for (0..count) |_| try source.appendSlice(arena.allocator(), "do\n");
+        try source.appendSlice(arena.allocator(), "1");
+        for (0..count) |_| try source.appendSlice(arena.allocator(), "\nend");
+        try std.testing.expectError(error.LayoutLimit, check(arena.allocator(), source.items));
+    }
 }

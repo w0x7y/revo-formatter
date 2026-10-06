@@ -4,7 +4,7 @@ This package recognizes `.rv` and `.revo` as `Revo` and supplies settings for
 Zed's native external formatter. It formats the complete current buffer through
 an installed `revofmt`, including unsaved edits. Save formatting is opt-in.
 
-**Use this integration for UTF-8 LF sources.** Zed's native buffer and diff
+Use this integration for UTF-8 LF sources. Zed's native buffer and diff
 pipeline normalizes line endings. It cannot guarantee raw CRLF or mixed-ending
 file preservation, including CRLF inside opaque literals or comments. The CLI
 itself preserves those bytes, but it receives Zed's buffer text here. Use the CLI
@@ -12,9 +12,9 @@ directly when preserving the original CRLF or mixed-ending file bytes matters.
 
 The formatter binary is verified only on native Linux x86_64 GNU. Install or
 build it separately using the [repository instructions](../../README.md#build-from-source).
-This extension does not download a formatter. It contains no grammar, Rust or
-WebAssembly code, and adds no syntax highlighting, language server or completion
-provider.
+This metadata package is version 0.1.0. It does not download a formatter and
+contains no grammar, Rust or WebAssembly code. It adds no syntax highlighting,
+language server or completion provider.
 
 ## Install locally
 
@@ -34,6 +34,7 @@ Open user settings with `zed: open settings file`, or edit the intended project'
 `.zed/settings.json`. Merge the `languages.Revo` object below into your existing
 settings. Keep other languages and unrelated Revo settings. Installing the
 extension does not load `settings.json` automatically or edit your settings.
+The shipped [settings.json](settings.json) is the source for this example:
 
 ```json
 {
@@ -94,13 +95,19 @@ token/comment bytes, syntax equivalence modulo coordinates and idempotence.
 Empty source stays empty. Syntax or validation failures return exit code 2,
 stderr diagnostics and no formatted output.
 
-Zed owns process execution and edit application. Its current
+The CLI also applies the repository's
+[input admission limits](../../docs/verification/input-limits.md), including
+262,144 source bytes. This metadata package adds no separate source or output
+byte limits.
+
+Zed owns process execution and edit application. The
 [native formatting implementation](https://github.com/zed-industries/zed/blob/main/crates/project/src/lsp_store.rs)
 checks the exit status before creating a diff, includes stderr in process
 errors, and aborts application if the formatting transaction is no longer at
 the top of the undo stack. These are native host behaviors, not custom guards
-provided by this package. There is no package-specific cancellation or timeout
-control.
+provided by this package. There is no package-specific cancellation, timeout
+or workspace trust guard. Review external formatter settings in the same way
+as other commands you configure in Zed.
 
 Zed sends rope text to stdin. Its
 [Buffer::diff implementation](https://github.com/zed-industries/zed/blob/main/crates/language/src/buffer.rs)
@@ -110,15 +117,15 @@ changed before the CLI runs. A successful direct CRLF subprocess check cannot
 establish preservation through Zed. Keep this limitation in mind before enabling
 save formatting.
 
-The current
+The source review recorded on 2026-10-06 found that the
 [LanguageConfig type](https://github.com/zed-industries/zed/blob/main/crates/language_core/src/language_config.rs)
 has an optional grammar, so this metadata-only language deliberately omits one.
-Zed's language-extension guide still describes a grammar as required; this
-package follows the inspected current source. Its
+The inspected
 [extension builder](https://github.com/zed-industries/zed/blob/main/crates/extension/src/extension_builder.rs)
 discovers `languages/revo/config.toml` and compiles Rust only when a Rust library
-is present. This compatibility assessment used current source on 2026-10-06,
-not an automated installation in a running Zed editor.
+is present. That source-based compatibility assessment is recorded in the
+[original editor verification](../../docs/verification/2026-10-06-editor-integrations.md).
+That review used source inspection rather than an automated native host test.
 
 ## Verification
 
@@ -130,7 +137,7 @@ REVOFMT_BIN=/absolute/path/to/revofmt python3 editors/zed/tests/run.py
 ```
 
 The runner defaults to this repository's `target/debug/revofmt` and requires an
-existing executable. It uses only Python's standard library. The checks parse
+existing executable. It uses only Python's standard library. The 15 checks parse
 the TOML and JSON, verify recognition and preservation settings, and execute the
 configured argument array against the real CLI with raw byte transport.
 They cover LF layout, Unicode, opaque literal whitespace, CRLF and mixed-ending
@@ -140,8 +147,11 @@ runs the formatter's built-in preservation validation.
 
 These are metadata and subprocess tests. They do not test native language
 registration, editor buffer preservation, undo, cancellation or stale edit
-application. The local `zeditor --version` reported 1.22.0; no native host smoke
-test was performed, and no personal editor configuration was changed.
+application. The
+[latest verification record](../../docs/verification/2026-10-06-documentation-handoff.md)
+records a successful run with the release CLI, without an automated native Zed
+session or a minimum-version claim. User-reported successful installation and
+formatting are separate evidence.
 
 For a manual host check after installing and merging settings, use an LF file
 with `let x=1`, make an unsaved edit, run `editor: format`, and confirm only the

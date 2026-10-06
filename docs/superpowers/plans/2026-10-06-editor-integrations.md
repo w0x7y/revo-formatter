@@ -1,6 +1,15 @@
 # Editor integrations implementation plan
 
-> **For agentic workers:** Use subagent-driven-development to implement this plan task-by-task. Each task receives a fresh reviewer before the next starts.
+Completed editor-integration plan from 2026-10-06. Interfaces and execution
+steps below record the original stage; later work fixed VS Code activation and
+Neovim timeout completion. Use the [documentation index](../../README.md) for
+current instructions, the [editor guide](../../../editors/README.md) for delivered
+packages, and the [later source/editor check](../../verification/2026-10-06-editor-final-check.md)
+for later verification and its limits.
+
+> Historical execution process: implementation used subagent-driven development
+> task by task, with a fresh reviewer before each next implementation began.
+> These instructions record the completed stage.
 
 **Goal:** Locally installable formatting and file recognition for Neovim, VS Code, and Zed.
 

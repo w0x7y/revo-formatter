@@ -1,6 +1,10 @@
 # Scoped re-review of research corrections
 
-Historical research/review from 2026-10-05, covering the pinned revisions cited below. The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+Historical scoped re-review of research corrections from 2026-10-05. Verdicts
+and line references below describe the reviewed versions; they do not report a
+new build or runtime check. Implementation has since completed. Use the
+[documentation index](../docs/README.md) for current instructions and verification,
+and the [architecture](../docs/architecture.md) for delivered interfaces.
 
 Reviewed 2026-10-05. Comparison: `f06d5126` to `c90b6c1d`. Scope was the two changed research reports, the original independent reviews, and the relevant preservation, analysis-interface and build sections of the existing design and implementation plan. The accepted contract permits formatting-induced source-coordinate changes, including coordinates observable by proc macros.
 

@@ -1,5 +1,12 @@
 # VS Code activation fix review
 
+Historical review of the VS Code activation correction on 2026-10-06. Line
+references, package hash and checks below apply to the reviewed range. The
+[documentation index](../README.md) links later launcher and editor reviews;
+the [editor guide](../../editors/README.md) describes current packages, and the
+[later source/editor check](2026-10-06-editor-final-check.md) records subsequent
+verification and its limits.
+
 Reviewed range: `1e31cd512fc353d69b8342425898cc3b36a51bee..3d48a57c24ee6f6c13578a6d8a8467a9e03dbf1f`, 2026-10-06.
 
 Ready: yes. No actionable findings.

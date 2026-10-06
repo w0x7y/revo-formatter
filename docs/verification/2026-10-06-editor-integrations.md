@@ -1,8 +1,12 @@
 # Editor integrations verification — 2026-10-06
 
-The later [VS Code activation follow-up](2026-10-06-vscode-activation.md) records
-a native-host defect found after installation and its correction. This report
-retains the checks and limitations of the original reviewed stage.
+Historical verification of the original editor-integration stage on 2026-10-06.
+Counts, package hashes and host limitations below describe that stage. The
+[VS Code activation follow-up](2026-10-06-vscode-activation.md) records a defect
+found after installation; the [later source/editor check](2026-10-06-editor-final-check.md)
+records subsequent admission and Neovim timeout repairs. Use the
+[documentation index](../README.md) and [editor guide](../../editors/README.md)
+for current instructions and package behavior.
 
 ## Scope and structure
 

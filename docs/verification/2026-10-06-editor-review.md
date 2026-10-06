@@ -1,5 +1,12 @@
 # Final whole-branch review
 
+Historical review of the original editor-integration stage on 2026-10-06.
+Line references, readiness and host limitations below apply to the reviewed
+range. Later activation, launcher and timeout fixes have their own records;
+see the [documentation index](../README.md) and
+[later source/editor check](2026-10-06-editor-final-check.md). The
+[editor guide](../../editors/README.md) describes current packages.
+
 Reviewed range: `e048b7d5..520f2374`, 2026-10-06.
 
 ### Strengths

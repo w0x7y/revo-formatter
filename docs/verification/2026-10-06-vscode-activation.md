@@ -1,5 +1,13 @@
 # VS Code activation follow-up — 2026-10-06
 
+Historical verification of the VS Code activation correction on 2026-10-06.
+Counts, archive hash and host checks below describe that stage. Later work
+fixed launcher signal handling and regenerated the local archive. Use the
+[documentation index](../README.md) and [editor guide](../../editors/README.md)
+for current instructions, and the
+[later source/editor check](2026-10-06-editor-final-check.md) for subsequent
+verification and its limits.
+
 ## Reproduction and cause
 
 The first VSIX installed successfully, but the user reported that Format Document

@@ -1,6 +1,11 @@
 # Revo Formatter Architecture Deepening Implementation Plan
 
-Historical approved design/implementation plan; implementation and its review gates are complete. Original interface sketches and stage-specific instructions below are retained as design history. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+Completed initial architecture-deepening plan from 2026-10-05. Interface sketches,
+workspace paths, commands and review steps below record that stage. Use the
+[documentation index](../../README.md) for current instructions, the
+[architecture](../../architecture.md) for delivered module boundaries, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+verification and its limits.
 
 > **Historical execution process:** Implementation used independent task and whole-change reviews. The user requested implementation without visual-report or candidate-selection phases. This is a completed plan, not a new delegation instruction.
 

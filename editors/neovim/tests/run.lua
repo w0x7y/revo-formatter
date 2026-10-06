@@ -194,6 +194,103 @@ test('bounds synchronous and asynchronous timeouts without modifying buffers', f
     assert(table.concat(errors):find('timed out', 1, true), table.concat(errors))
   end
 end)
+-- Each inherited-pipe case owns a bounded child even when an assertion fails.
+local function inherited_pipes(body)
+  local pid_path = vim.fn.tempname()
+  vim.env.REVOFMT_TEST_CHILD_PID = pid_path
+  local before = {}
+  vim.uv.walk(function(handle) before[handle] = true end)
+  local function cleaned_up()
+    local clean = true
+    vim.uv.walk(function(handle)
+      if not before[handle] and not handle:is_closing() then clean = false end
+    end)
+    return clean
+  end
+  local fmt = controlled('inherited-pipes', { timeout_ms = 150 })
+  local ok, err = pcall(body, fmt, cleaned_up, pid_path)
+  local spawned = vim.fn.filereadable(pid_path) == 1
+  if spawned and vim.fn.filereadable(pid_path .. '.done') == 0 then
+    vim.uv.kill(tonumber(vim.fn.readfile(pid_path)[1]), 9)
+  end
+  vim.fn.delete(pid_path)
+  vim.fn.delete(pid_path .. '.done')
+  vim.env.REVOFMT_TEST_CHILD_PID = nil
+  drain(60)
+  assert(ok, err)
+  assert(spawned, 'fixture wrapper never spawned its inherited-pipe descendant')
+end
+
+test('returns a bounded synchronous timeout when a wrapper exits with inherited pipes', function()
+  inherited_pipes(function(fmt, cleaned_up)
+    local buf = buffer({ 'let x=1' })
+    local tick, start = vim.api.nvim_buf_get_changedtick(buf), vim.uv.hrtime()
+    local ok, err = fmt.format({ bufnr = buf, async = false })
+    assert(not ok and err:find('timed out', 1, true), tostring(err))
+    assert((vim.uv.hrtime() - start) / 1e6 < 500, 'timeout waited for descendant EOF')
+    equal(bytes(buf), 'let x=1')
+    equal(vim.api.nvim_buf_get_changedtick(buf), tick)
+    assert(vim.wait(100, cleaned_up, 5), 'timeout left transport handles open')
+  end)
+end)
+test('manual async timeout settles before inherited pipe EOF and ignores late output', function()
+  inherited_pipes(function(_, cleaned_up)
+    local buf = buffer({ 'let x=1' })
+    local tick, start = vim.api.nvim_buf_get_changedtick(buf), vim.uv.hrtime()
+    vim.cmd('RevoFormat')
+    assert(vim.wait(500, function() return #errors > 0 end, 5), 'no timeout notification before descendant EOF')
+    assert((vim.uv.hrtime() - start) / 1e6 < 500)
+    assert(errors[1]:find('timed out', 1, true), errors[1])
+    assert(vim.wait(100, cleaned_up, 5), 'timeout left transport handles open')
+    drain(900) -- Let the descendant publish late stdout/stderr and close its pipes.
+    equal(#errors, 1)
+    equal(bytes(buf), 'let x=1')
+    equal(vim.api.nvim_buf_get_changedtick(buf), tick)
+  end)
+end)
+for _, canceled in ipairs({ false, true }) do
+  test(canceled and 'canceled inherited-pipe transport releases handles without completion'
+    or 'inherited-pipe transport completes exactly once at its deadline', function()
+    inherited_pipes(function(_, cleaned_up, pid_path)
+      local calls, result = 0, nil
+      local operation, err = require('revofmt.transport').start({
+        executable = fixture, indent_width = 2, line_width = 80, timeout_ms = 150,
+      }, 'let x=1', function(value) calls = calls + 1; result = value end)
+      assert(operation, err)
+      if canceled then
+        assert(vim.wait(100, function() return vim.fn.filereadable(pid_path) == 1 end, 5))
+        drain(20) -- The wrapper exits while the descendant keeps its pipes open.
+        operation.cancel()
+      else
+        assert(vim.wait(500, function() return calls > 0 end, 5), 'transport callback waited for pipe EOF')
+        assert(result.error:find('timed out', 1, true))
+      end
+      assert(vim.wait(100, cleaned_up, 5), 'settled transport left handles open')
+      drain(900)
+      equal(calls, canceled and 0 or 1)
+      if not canceled then equal(result.stdout, ''); equal(result.stderr, '') end
+    end)
+  end)
+end
+test('inherited-pipe timeout still saves the unchanged user source', function()
+  inherited_pipes(function(_, cleaned_up)
+    local path = vim.fn.tempname() .. '.rv'
+    local buf = buffer({ 'let x=1' })
+    vim.api.nvim_buf_set_name(buf, path); vim.bo[buf].filetype = 'revo'
+    controlled('inherited-pipes', { timeout_ms = 150, format_on_save = true })
+    local start = vim.uv.hrtime()
+    local ok, err = pcall(vim.cmd, 'write!')
+    local contents = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path) or nil
+    vim.fn.delete(path)
+    assert(ok, err)
+    assert((vim.uv.hrtime() - start) / 1e6 < 500, 'save waited for descendant EOF')
+    equal(contents, { 'let x=1' })
+    equal(bytes(buf), 'let x=1')
+    assert(table.concat(errors):find('timed out', 1, true), table.concat(errors))
+    assert(vim.wait(100, cleaned_up, 5), 'save timeout left transport handles open')
+  end)
+end)
+
 test('rejects excessive subprocess output', function()
   local fmt = controlled('oversize')
   local buf = buffer({ 'let x=1' })

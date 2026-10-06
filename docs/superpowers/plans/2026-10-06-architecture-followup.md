@@ -1,6 +1,15 @@
 # Architecture Follow-up Implementation Plan
 
-> **For agentic workers:** Use subagent-driven-development to implement the tasks with fresh reviews. The user explicitly authorized implementation without a visual report or further candidate approval.
+Completed architecture follow-up plan from 2026-10-06. Tasks, constraints and
+review ranges below record that stage. Use the
+[documentation index](../../README.md) for current instructions, the
+[architecture](../../architecture.md) for delivered ownership, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+admission and editor repairs and their verification limits.
+
+> Historical execution process: implementation used subagent-driven development
+> with fresh reviews. The user authorized that stage without a visual report or
+> further candidate approval. These instructions record the completed stage.
 
 **Goal:** Fix the two confirmed architecture-scan findings while preserving existing formatter and editor contracts.
 

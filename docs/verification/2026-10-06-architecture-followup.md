@@ -1,9 +1,12 @@
 # Architecture follow-up verification, 2026-10-06
 
-This follow-up starts at `aea81c06` and implements the two confirmed architecture
-scan findings. Final production sources are at `ae82b578`. The
-[architecture guide](../architecture.md) describes their current ownership.
-Earlier dated reports retain the counts and coverage of their recorded stages.
+Historical verification of the architecture follow-up on 2026-10-06. The stage
+starts at `aea81c06` and implements the two confirmed architecture-scan findings;
+its final production sources are at `ae82b578`. Counts, measurements and local
+paths below describe that tree. Use the [documentation index](../README.md) for
+current instructions and the [architecture](../architecture.md) for delivered
+ownership. The [later source/editor check](2026-10-06-editor-final-check.md)
+records subsequent admission and timeout repairs and their coverage limits.
 
 ## Changes and regression evidence
 

@@ -1,6 +1,11 @@
 # Independent review of the Revo syntax inventory
 
-Historical research/review from 2026-10-05, covering the pinned revisions cited below. The coordinate-policy concern and research corrections were resolved before implementation; see [the re-review](research-rereview.md). The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+Historical independent syntax-inventory review from 2026-10-05. Findings and
+line references below describe the reviewed versions. Toolchain, record-doc and
+comparison corrections were resolved before implementation; see
+[the re-review](research-rereview.md). Use the [documentation index](../docs/README.md)
+for current instructions and verification, and the
+[architecture](../docs/architecture.md) for delivered interfaces.
 
 Reviewed 2026-10-05 against the local primary source at `/tmp/revo-formatter-upstream`, whose `HEAD` is `b571298b6fc95bc863548f118354c8d077792f6f`. The checkout was clean. This was a bounded source review of the named formatting risks. I did not run Zig tests, and no upstream or inventory files were edited.
 

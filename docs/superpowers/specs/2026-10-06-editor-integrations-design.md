@@ -1,8 +1,16 @@
 # Editor integrations
 
-Approved in the conversation on 2026-10-06. Implement in order: Neovim,
-VS Code, Zed. Each editor package receives an independent review before the
-next implementation starts. Registry publication is outside this change.
+Approved design for the completed editor-integration stage of 2026-10-06.
+Package boundaries and proposed transport below record that stage. Later work
+fixed VS Code activation and replaced Neovim's original transport. Use the
+[documentation index](../../README.md) for current instructions, the
+[editor guide](../../../editors/README.md) for delivered packages, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+verification and its limits.
+
+The approved implementation order was Neovim, VS Code, Zed, with an independent
+review before each next implementation began. Registry publication was outside
+that stage.
 
 ## Repository layout
 

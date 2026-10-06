@@ -1,6 +1,11 @@
 # Layout scope and document module deepening
 
-Completed layout-deepening stage. Counts below precede the final generic-call regression and fitting fix; the earlier differential measurements are retained as stage evidence. See the [final source check](2026-10-06-final-check.md) for later checks and the [current architecture](../architecture.md) for module ownership.
+Historical verification of the completed layout-deepening stage on 2026-10-06.
+Counts below precede the final generic-call fitting fix; differential measurements
+remain evidence for that stage. Use the [documentation index](../README.md) for
+current instructions and the [architecture](../architecture.md) for delivered
+ownership. The [later source/editor check](2026-10-06-editor-final-check.md)
+records subsequent repairs, checks and coverage limits.
 
 The user requested direct implementation of architecture findings and explicitly
 skipped the visual report. The scan concentrated on recently changed layout code.

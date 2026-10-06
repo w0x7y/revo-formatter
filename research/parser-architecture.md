@@ -1,6 +1,11 @@
 # Parser architecture research
 
-Historical research/review from 2026-10-05, covering the pinned revisions cited below. The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+Historical parser-architecture research from 2026-10-05, covering the revisions
+cited below. Recommendations, temporary paths and unproven build work record
+that research stage; the static bridge and formatter have since been implemented.
+Use the [documentation index](../docs/README.md) for current instructions and
+verification, and the [architecture](../docs/architecture.md) for delivered
+interfaces. Original source and runtime observations remain below.
 
 Research date: 2026-10-05. Design research only; no implementation or checkout changes. The user selected Rust, CLI plus library, and line-width reflow in the first release while this investigation was running.
 
@@ -61,7 +66,7 @@ References: [adjacency and calls](https://github.com/if-not-nil/revo/blob/b57129
 
 ## Smallest practical Zig bridge
 
-The concrete analysis and comparison contract is specified in [implementation plan, Task 1](../docs/superpowers/plans/2026-10-05-revo-formatter.md#task-1-build-the-pinned-frontend-bridge-and-rust-oracle). `analyze` returns an interleaved `SourceToken { kind, start, end }` tape and `SyntaxRegion { kind, start, end }` annotations in original UTF-8 byte coordinates. Region kinds are `statement`, `block` and `match_arm`; exclude synthetic generated nodes and invalid ranges. Rust recovers remaining concrete grouping from source tokens. C ABI calls return owned structured JSON buffers with an explicit free function; Rust copies/deserializes and releases them on every path. `equivalent` implements complete structural equality modulo positions, separately from raw-tape preservation.
+The proposed analysis and comparison contract was specified in [implementation plan, Task 1](../docs/superpowers/plans/2026-10-05-revo-formatter.md#task-1-build-the-pinned-frontend-bridge-and-rust-oracle). Its `analyze` returns an interleaved `SourceToken { kind, start, end }` tape and `SyntaxRegion { kind, start, end }` annotations in original UTF-8 byte coordinates. Proposed region kinds are `statement`, `block` and `match_arm`; exclude synthetic generated nodes and invalid ranges. Rust recovers remaining concrete grouping from source tokens. C ABI calls return owned structured JSON buffers with an explicit free function; Rust copies/deserializes and releases them on every path. `equivalent` implements complete structural equality modulo positions, separately from raw-tape preservation. The current architecture guide describes the later paired `AnalyzedSource` interface and richer source hints.
 
 For an analysis ABI returning tokens and layout regions, return complete raw byte ranges separately from compiler diagnostic spans. `lexComment` retains the opening delimiter's line and byte column, but doc/module `Token.start/end` cover the body. A bridge can map the saved line/column into the original source for the raw start and extend the body end by two bytes for `*#` or `!#`, asserting both delimiters. Alternatively, add an explicit raw span in a small reviewed lexer adapter. Ordinary comments and strings already expose full lexeme ranges. AST-derived regions require care: desugaring creates synthetic nodes and some spans, such as grouped imports, do not cover the complete source construct. Source tokens remain the printing authority.
 
@@ -87,7 +92,7 @@ Changing only `fn(x)` to `fn(  x)` produced `88`. The macro reads the parameter 
 
 Under the user's explicit choice, formatting such code is allowed, and the comparator intentionally accepts the witness modulo spans. Document that macros/source introspection can observe formatting-induced position changes; do not call this validation a behavior-invariance guarantee or execute macros to validate output. This corrects the broader interpretation in the original research.
 
-`Parser.parseSourceReport` handles proc definitions/calls and quasiquotes without invoking their expansion. Expansion, import preloading, type checking and compilation are later pipeline phases. The lexer has a `macro` keyword but the current parser prefix switch has no `.kw_macro` case; do not assume legacy macro declarations accepted by Tree-sitter are supported by the current compiler. A formatter validator should parse current syntax and never execute user macros or load imports.
+`Parser.parseSourceReport` handles proc definitions/calls and quasiquotes without invoking their expansion. Expansion, import preloading, type checking and compilation are later pipeline phases. The pinned lexer has a `macro` keyword but its parser prefix switch has no `.kw_macro` case; do not assume legacy macro declarations accepted by Tree-sitter are supported by the inspected compiler. A formatter validator should parse the pinned syntax and never execute user macros or load imports.
 
 Dependency boundary still needs a build experiment. Direct frontend files reference `std`, `ast`, lexer, type syntax and diagnostics. Indirect imports include:
 
@@ -98,7 +103,7 @@ Dependency boundary still needs a build experiment. Direct frontend files refere
 
 Zig's declaration laziness may leave these outside a production bridge that only parses and returns simple diagnostics; this was not compiled here. Start with a pinned source snapshot retaining layout, invoke a separate minimal bridge build rather than upstream `build.zig`, and prove which files/modules actually need inclusion. Do not claim the whole runtime dependency graph is required or that it is already avoided.
 
-Revo specifies a minimum Zig version of **0.17.0** in `build.zig.zon` and requests `0.17.0` in README. For this formatter, require the **exact stable Zig 0.17.0** toolchain and reject development or other versions until separately reviewed. The [official download index](https://ziglang.org/download/index.json) currently lists that stable release dated 2026-10-01, with host archives/checksums. Pin the archive and verify its checksum. No Zig executable was available in PATH during the original research. Rust builds would invoke the bridge build and link its static library; binary users need neither Zig nor Revo. Cross-target ABI/linking, panic/allocation behavior, and minimal imported modules remain build-validation work.
+The inspected Revo revision specifies a minimum Zig version of **0.17.0** in `build.zig.zon` and requests `0.17.0` in README. For this formatter, require the **exact stable Zig 0.17.0** toolchain and reject development or other versions until separately reviewed. The [official download index](https://ziglang.org/download/index.json), checked on 2026-10-05, listed that stable release dated 2026-10-01, with host archives/checksums. Pin the archive and verify its checksum. No Zig executable was available in PATH during the original research. Rust builds would invoke the bridge build and link its static library; binary users need neither Zig nor Revo. Cross-target ABI/linking, panic/allocation behavior, and minimal imported modules remained build-validation work at this stage.
 
 A subprocess oracle is simpler for initial comparison tests but is insufficient as the shipped safety gate unless the helper is bundled and always called. `revo compile` alone is not a syntax oracle: it invokes later phases and may expand macros/load imports. The installed CLI has no parse-only command, so a dedicated bridge/helper is still needed.
 

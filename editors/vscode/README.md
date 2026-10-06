@@ -5,9 +5,13 @@ complete current buffer, including unsaved changes, with an installed `revofmt`.
 Its extension ID is `w0x7y.revofmt`. It requires VS Code 1.85 or later and a trusted
 workspace. File recognition remains available in Restricted Mode.
 
+Version 0.1.1 explicitly activates on `onLanguage:revo`; opening either suffix
+or selecting the Revo language activates its formatting provider.
+
 The formatter binary is built and verified only on native Linux x86_64 GNU.
 This extension does not bundle or download a formatter. Build the CLI from the
-repository root with exact Zig 0.17.0 and Rust, following the root README, then
+repository root with exact Zig 0.17.0 and Rust, following the
+[build instructions](https://github.com/w0x7y/revo-formatter/blob/main/README.md#build-from-source), then
 put `revofmt` on PATH or configure its absolute path.
 
 ## Package and install locally
@@ -24,6 +28,9 @@ You can also use **Extensions: Install from VSIX…** from VS Code's Command
 Palette. No Marketplace publication is required. Packaging uses the pinned
 development-only `@vscode/vsce`; the installed extension has no runtime npm
 dependencies. The VSIX includes its MIT license.
+
+Rebuild the VSIX after changing package metadata, runtime files or this README
+so the installed package matches the checkout.
 
 ## Format a document
 
@@ -49,7 +56,17 @@ The executable setting is machine-overridable and restricted in untrusted
 workspaces. Review a workspace's executable setting before trusting it. The
 executable is spawned directly with an argument array; shell quoting, `~`,
 environment-variable expansion and additional arguments are not interpreted.
-For example, configure `"revofmt.executable": "/home/me/bin/revofmt"`.
+For example, configure the formatter in your settings:
+
+```json
+{
+  "revofmt.executable": "/absolute/path/to/revo-formatter/target/release/revofmt"
+}
+```
+
+For remote sessions, this path belongs to the workspace extension host. Remote
+host support is declared in metadata; it has not been tested by this repository's
+native host regression.
 
 ## Opt in to format on save
 
@@ -77,11 +94,15 @@ other extensions' save actions separately if they also modify Revo documents.
 
 The CLI owns syntax validation, exact token/comment and syntax-tree preservation,
 and idempotence. This extension transmits UTF-8 source on stdin and only uses
-stdout from a successful subprocess. Source and stdout are limited to 262144
-bytes; stderr is limited to 65536 bytes. Lone UTF-16 surrogates and invalid UTF-8
-stdout are rejected. Cancellation, timeout, nonzero exit, signal termination,
+stdout from a successful subprocess. Source and stdout are limited to 262,144
+bytes; stderr is limited to 65,536 bytes. Source admission runs before the
+process starts. Lone UTF-16 surrogates and invalid UTF-8 stdout are rejected.
+Cancellation, timeout, nonzero exit, signal termination,
 document changes and superseded requests leave the buffer untouched. Errors
 include bounded CLI stderr when available.
+
+Failures terminate the direct formatter child. Custom wrappers own any
+independently running descendants.
 
 Successful formatting returns one small contiguous edit with UTF-16 positions.
 VS Code normalizes inserted line breaks to the document's LF or CRLF setting.
@@ -97,15 +118,17 @@ independent save actions. Ordinary UTF-8 LF and CRLF buffers are supported.
 
 ## Development and verification
 
-Build the CLI first, then run the dependency-free Node test suite:
+Build the CLI first, then run the dependency-free test suite with Node.js >=20
+and npm from this directory. `npm ci` is needed for VSIX packaging, not for
+these tests:
 
 ```sh
 npm test
 REVOFMT_BIN=/absolute/path/to/revofmt npm test
 ```
 
-The default test executable is `../../target/debug/revofmt`. Tests exercise real
-CLI transport and a small VS Code API test double for provider registration,
+The default test executable is `../../target/debug/revofmt`. The 49 tests
+exercise real CLI transport and a small VS Code API test double for provider registration,
 edit application, workspace trust, document lifecycle and cancellation. Controlled
 subprocesses cover malformed output, process limits and termination. These are
 unit/provider and CLI integration tests; they are not actual extension-host
@@ -129,19 +152,20 @@ It opens a separate window with temporary user settings, an empty extensions
 directory and a disposable trusted workspace. It checks `.rv` and `.revo`
 recognition, automatic activation after displaying a Revo document, native
 provider edits, exact output from an unsaved buffer and idempotence. It never
-calls the extension's activation function directly. The extension declares
-`onLanguage:revo` explicitly because its metadata-only language contribution
-does not receive VS Code's implicit activation event. See the
-[VS Code language contribution implementation](https://github.com/microsoft/vscode/blob/07f806f999227108933c2e30515b26eecc1fda74/src/vs/workbench/services/language/common/languageService.ts#L111-L117).
+calls the extension's activation function directly, so a missing language
+activation event causes the test to fail.
 
 The runner waits up to 60 seconds for a host result, even when the `code` launcher
 returns early with exit code zero. Signal termination and nonzero launcher exits
 fail promptly with their signal or exit code. It closes only its isolated host and
 removes successful temporary data. Failures retain logs and results; set
-`REVOFMT_HOST_KEEP=1` to retain a
-successful run too. The native test passed on Linux x86_64 GNU with VS Code
-1.140.0. It does not establish host behavior for remote workspaces, Restricted
-Mode, undo, cancellation, stale results, line-ending edge cases or save actions.
+`REVOFMT_HOST_KEEP=1` to retain a successful run too. The native test passed on
+Linux x86_64 GNU with VS Code
+1.140.0, as recorded in the
+[latest verification record](https://github.com/w0x7y/revo-formatter/blob/main/docs/verification/2026-10-06-documentation-handoff.md).
+The minimum VS Code 1.85 was not executed. The native test does not establish
+host behavior for remote workspaces, Restricted Mode, undo, cancellation, stale
+results, line-ending edge cases or save actions.
 
 For a manual extension-host smoke test on a machine with VS Code installed:
 

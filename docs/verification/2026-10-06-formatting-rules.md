@@ -1,6 +1,11 @@
 # Formatting rules verification
 
-Completed formatting-rules stage. Counts below were observed before the subsequent layout deepening and generic-call fitting fix. See the [final source check](2026-10-06-final-check.md) for later checks and the [current architecture](../architecture.md) for module ownership.
+Historical verification of the completed formatting-rules stage on 2026-10-06.
+Counts below precede layout deepening and the generic-call fitting fix. Use the
+[documentation index](../README.md) for current instructions and the
+[architecture](../architecture.md) for delivered ownership. The
+[later source/editor check](2026-10-06-editor-final-check.md) records subsequent
+repairs, checks and coverage limits.
 
 The user authorized all eight findings from the formatting review and the
 nested twoSum example. The implementation fixes header/body grouping, generic
