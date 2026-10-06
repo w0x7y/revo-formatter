@@ -7,8 +7,8 @@ Paths under that directory match upstream paths exactly. `REVISION` and
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
 is separately covered by the root `LICENSE`.
 
-`tests/fixtures/upstream/` also contains unchanged examples, documentation
-extracts, and locally formatted expected outputs from that same revision.
+`tests/fixtures/upstream/` contains unchanged examples and documentation extracts
+from that same revision, plus locally reviewed formatted expected outputs.
 Its [PROVENANCE.md](tests/fixtures/upstream/PROVENANCE.md) enumerates every
 selected input with exact upstream paths and line ranges. The corpus retains
 its own unchanged upstream MIT notice in `LICENSE.txt` and file checksums in
@@ -24,16 +24,13 @@ or invokes a Revo runtime. No upstream source modifications or stub runtime
 modules are used. The separate `bridge/` modules implement owned JSON results,
 source metadata, and exhaustive structural comparison.
 
-# Source builds
+## Source builds
 
 Install exact stable Zig **0.17.0** yourself, then run:
 
 ```sh
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo test --all-targets
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-/absolute/path/to/zig-0.17.0/zig fmt --check bridge.zig bridge/*.zig
-/absolute/path/to/zig-0.17.0/zig test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter indexed --test-filter 'input limits:' --cache-dir target/zig-test-cache
+export ZIG=/absolute/path/to/zig-0.17.0/zig
+cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
 ```
@@ -59,12 +56,12 @@ optional dependencies. Resulting binaries have no separate Zig or Revo runtime
 dependency; normal Linux C/system libraries still apply. Build caches and
 archives are placed under Cargo's output directory, outside tracked sources.
 
-These commands select all nine local Zig bridge/index/admission tests. See the
-[development checks](README.md#development-and-verification) and
+Run the complete Rust, filtered local Zig, and editor suites from the
+[development checks](README.md#development-and-verification). See the
 [current architecture](docs/architecture.md) for contributor guidance. Verify
 manifests from the directories shown; their paths are directory-relative.
 
-# Syntax validation policy
+## Syntax validation policy
 
 Comparison ignores only the exact upstream `ast.Span` type, including nested
 parameter/type coordinates. It compares all other fields, tagged unions,

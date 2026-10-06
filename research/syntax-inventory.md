@@ -1,6 +1,10 @@
 # Revo syntax constraints for a source formatter
 
-Historical research/review from 2026-10-05, covering the pinned revisions cited below. The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+Historical syntax inventory from 2026-10-05 for the pinned frontend cited below.
+Source paths, line references and proposed checks record that research stage;
+the static bridge and formatter have since been implemented. Use the
+[documentation index](../docs/README.md) for current instructions and verification,
+and the [architecture](../docs/architecture.md) for delivered interfaces.
 
 Inspected 2026-10-05. Upstream is `https://github.com/if-not-nil/revo.git`, clean checkout at `b571298b6fc95bc863548f118354c8d077792f6f`, commit dated 2026-10-05. All source paths and line numbers below refer to that revision under `/tmp/revo-formatter-upstream`. The pinned [lexer](https://github.com/if-not-nil/revo/blob/b571298b6fc95bc863548f118354c8d077792f6f/src/lang/Lexer.zig) was also fetched from GitHub's raw endpoint. The local source is the evidence for the detailed findings; this note does not claim those rules remain unchanged at future revisions.
 
@@ -52,7 +56,7 @@ Preserve actual parser behavior around comments. `peek` and `peekAt` skip ordina
 
 ## Lexical hazards and sigils
 
-`Lexer.zig:1067-1084` defines ASCII identifiers with `_`, digits after the first character, and trailing or interior `!` and `?`. Atom continuation additionally accepts `- + * / = < > . @ $ ~ ^ ? !`. Colon plus an identifier or symbolic atom starter becomes one atom token at `448-451`; a separated colon remains a colon token. Thus `:ok`, `:+`, and `:foo.bar` must remain intact. `$` outside an atom/string is an error at `477`. `@name` is one attribute token at `478-481`, `1051-1054`; the parser currently recognizes only `@native` at `582-585`.
+`Lexer.zig:1067-1084` defines ASCII identifiers with `_`, digits after the first character, and trailing or interior `!` and `?`. Atom continuation additionally accepts `- + * / = < > . @ $ ~ ^ ? !`. Colon plus an identifier or symbolic atom starter becomes one atom token at `448-451`; a separated colon remains a colon token. Thus `:ok`, `:+`, and `:foo.bar` must remain intact. `$` outside an atom/string is an error at `477`. `@name` is one attribute token at `478-481`, `1051-1054`; the pinned parser recognizes only `@native` at `582-585`.
 
 These pairs have different tokenization:
 

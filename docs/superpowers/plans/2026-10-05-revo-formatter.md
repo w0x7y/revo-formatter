@@ -1,6 +1,12 @@
 # Revo formatter implementation plan
 
-Historical approved design/implementation plan; implementation and its review gates are complete. Original interface sketches and stage-specific instructions below are retained as design history. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+Completed initial formatter plan from 2026-10-05. Interface sketches, file maps,
+commands and execution constraints below record the initial implementation.
+Later stages added editors, revised private interfaces and hardened admission.
+Use the [documentation index](../../README.md) for current instructions, the
+[architecture](../../architecture.md) for delivered module boundaries, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+verification and its limits.
 
 > **Historical execution process:** Implementation used task-by-task development with independent spec and quality reviews. This is a completed plan, not a new delegation instruction.
 

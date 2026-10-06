@@ -1,6 +1,12 @@
 # Revo formatter v0 design
 
-Historical approved design/implementation plan; implementation and its review gates are complete. Original interface sketches and stage-specific instructions below are retained as design history. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+Approved design for the completed initial formatter stage of 2026-10-05.
+Decisions and implementation boundaries below record that stage; subsequent
+work added editors, richer layout ownership and resource admission. Use the
+[documentation index](../../README.md) for current instructions, the
+[architecture](../../architecture.md) for delivered module boundaries, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+verification and its limits.
 
 ## User decisions
 

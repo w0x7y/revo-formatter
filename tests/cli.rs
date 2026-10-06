@@ -217,6 +217,8 @@ fn excessive_syntax_returns_an_error_without_output_or_writes() {
         format!("a{}", ".field".repeat(4000)),
         format!("a{}", ".f".repeat(1500)),
         format!("a{}", ":f()".repeat(760)),
+        format!("{}foo.end{}", "do\n".repeat(300), "\nend".repeat(300)),
+        format!("{}foo.end{}", "do\n".repeat(336), "\nend".repeat(336)),
         format!(
             "{}{}",
             "match x | _ => ".repeat(330),

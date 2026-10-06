@@ -1,6 +1,13 @@
 # Whole-project independent review
 
-Historical pre-fix review from 2026-10-05. The Important match-arm finding was resolved by the [focused fix review](match-arm-fix-review.md); repeated metadata scans were addressed by [architecture deepening](architecture-deepening.md). The readiness verdict below applies to the original reviewed head. See the [final source check](2026-10-06-final-check.md) for later checks and the [current architecture](../architecture.md) for module ownership.
+Historical pre-fix review from 2026-10-05. The match-arm finding was resolved by
+the [focused fix review](match-arm-fix-review.md); repeated metadata scans were
+addressed by [architecture deepening](architecture-deepening.md). Readiness,
+line references and measurements below apply to the original reviewed head.
+Use the [documentation index](../README.md) for current instructions and the
+[architecture](../architecture.md) for delivered ownership. The
+[later source/editor check](2026-10-06-editor-final-check.md) records subsequent
+repairs, checks and coverage limits.
 
 Base: `c90b6c1d616c52c4ff7a5fab8338a12e235a6cbc`
 Head: `a2c139a532dcb5f3f7b39953a3e78720df1e21ff`

@@ -8,6 +8,152 @@ fn check(source: &str, expected: &str, options: FormatOptions) {
 }
 
 #[test]
+fn contextual_end_field_keeps_block_statements_indented() {
+    check(
+        "fn f() do\nfoo.end\nbar()\nend",
+        "fn f() do\n  foo.end\n  bar()\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn contextual_do_binding_keeps_block_statements_indented() {
+    check(
+        "do\nlet do=1\nfoo()\nend",
+        "do\n  let do = 1\n  foo()\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn contextual_end_binding_keeps_block_statements_indented() {
+    check(
+        "do\nlet end=1\nfoo()\nend",
+        "do\n  let end = 1\n  foo()\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn contextual_keywords_inside_blocks_are_not_delimiters() {
+    for (source, expected) in [
+        (
+            "fn f() do\nfoo.do\nbar()\nend",
+            "fn f() do\n  foo.do\n  bar()\nend\n",
+        ),
+        (
+            "do\nfoo. ## note ## end\nbar()\nend",
+            "do\n  foo. ## note ## end\n  bar()\nend\n",
+        ),
+        (
+            "do\nfoo. # note\nend\nbar()\nend",
+            "do\n  foo. # note\n  end\n  bar()\nend\n",
+        ),
+        ("do/end\nfoo()\nend", "do /end\n  foo()\nend\n"),
+        ("do/do\nfoo()\nend", "do /do\n  foo()\nend\n"),
+        (
+            "fn f(do,end) do\nfoo()\nend",
+            "fn f(do, end) do\n  foo()\nend\n",
+        ),
+        (
+            "fn f<do,end>() do\nfoo()\nend",
+            "fn f < do, end > () do\n  foo()\nend\n",
+        ),
+        (
+            "fn f.end() do\nfoo()\nend",
+            "fn f.end () do\n  foo()\nend\n",
+        ),
+        (
+            "do\nfor do,end in xs do\nfoo()\nend\nbar()\nend",
+            "do\n  for do, end in xs do\n    foo()\n  end\n  bar()\nend\n",
+        ),
+        (
+            "do\nloop/end do\nbreak/end nil\nend\nbar()\nend",
+            "do\n  loop/end do\n    break/end nil\n  end\n  bar()\nend\n",
+        ),
+        (
+            "do\ndo\nfoo.end\nfoo.do\nend\nbar()\nend",
+            "do\n  do\n    foo.end\n    foo.do\n  end\n  bar()\nend\n",
+        ),
+        (
+            "do\ndeclare x.end = number\nend",
+            "do\n  declare x.end = number\nend\n",
+        ),
+        (
+            "do\ntype X.end = number\nend",
+            "do\n  type X.end = number\nend\n",
+        ),
+    ] {
+        check(source, expected, FormatOptions::default());
+    }
+}
+
+#[test]
+fn final_nested_blocks_complete_their_owning_declarations() {
+    for (source, expected) in [
+        (
+            "do\nlet x=do\nlet end=1\nend\nend",
+            "do\n  let x = do\n    let end = 1\n  end\nend\n",
+        ),
+        (
+            "do\ntest \"x\" do\nfoo.end\nend\nend",
+            "do\n  test \"x\" do\n    foo.end\n  end\nend\n",
+        ),
+        (
+            "do\nsuite \"x\" do\ntest \"y\" do\nfoo.do\nend\nend\nend",
+            "do\n  suite \"x\" do\n    test \"y\" do\n      foo.do\n    end\n  end\nend\n",
+        ),
+        ("do/end end", "do /end end\n"),
+        ("do do end end", "do do end end\n"),
+        (
+            "do\n1 |> do\nfoo.end\nend\nend",
+            "do\n  1 |>\n    do\n      foo.end\n    end\nend\n",
+        ),
+    ] {
+        check(source, expected, FormatOptions::default());
+    }
+}
+
+#[test]
+fn piped_long_block_bodies_keep_their_indentation_scope() {
+    check(
+        "do\n1 |> do\nfirst_function_with_long_name()\nsecond_function_with_long_name()\nthird_function_with_long_name()\nend\nend",
+        "do\n  1 |>\n    do\n      first_function_with_long_name()\n      second_function_with_long_name()\n      third_function_with_long_name()\n    end\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn piped_nested_blocks_keep_their_hierarchical_scopes() {
+    check(
+        "do\n1 |> do\ndo\nfoo()\nbar()\nend\nbaz()\nend\nafter()\nend",
+        "do\n  1 |>\n    do\n      do\n        foo() bar()\n      end\n      baz()\n    end\n  after()\nend\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn nested_block_completion_and_generated_pipes_fit_a_two_mib_stack() {
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            for depth in [8, 16, 32] {
+                let source = format!("{}foo.end{}", "do\n".repeat(depth), "\nend".repeat(depth));
+                let output = format(&source, &FormatOptions::default()).unwrap();
+                assert_preserved_and_idempotent(&source, &output, &FormatOptions::default());
+            }
+            // Lowered pipe blocks now contribute descendant completion while
+            // retaining real block facts and suppressing synthetic hints.
+            let source = format!("do {} do foo.end end end", "1 |> ".repeat(80));
+            let output = format(&source, &FormatOptions::default()).unwrap();
+            assert_preserved_and_idempotent(&source, &output, &FormatOptions::default());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
 fn compact_control_flow_headers_and_return_values() {
     let expected = "fn twoSum(nums, target) do\n  for y in 0..len(nums) do\n    for x in y + 1..len(nums) do\n      if nums[y] + nums[x] == target do\n        return {y, x}\n      end\n    end\n  end\nend\n";
     check(expected, expected, FormatOptions::default());

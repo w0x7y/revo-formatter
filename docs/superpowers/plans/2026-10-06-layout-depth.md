@@ -1,6 +1,11 @@
 # Layout module deepening plan
 
-Completed implementation plan. The final review also corrected generic-call/list fitting and refreshed corpus metadata. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+Completed layout-deepening plan from 2026-10-06. The stage's final review also
+corrected generic-call/list fitting and refreshed corpus metadata. Tasks below
+record that implementation. Use the [documentation index](../../README.md) for
+current instructions, the [architecture](../../architecture.md) for delivered
+ownership, and the [later source/editor check](../../verification/2026-10-06-editor-final-check.md)
+for later verification and its limits.
 
 The user requested architecture improvements with direct implementation, skipping
 the visual report and candidate-selection loop. Preserve the existing uncommitted

@@ -1,6 +1,12 @@
 # Formatting rules implementation plan
 
-Completed implementation plan. The final review also corrected generic-call/list fitting and refreshed corpus metadata. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+Completed formatting-rules plan begun on 2026-10-05. The stage's final review
+also corrected generic-call/list fitting and refreshed corpus metadata. Tasks
+and constraints below record that implementation. Use the
+[documentation index](../../README.md) for current instructions, the
+[architecture](../../architecture.md) for delivered ownership, and the
+[later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
+verification and its limits.
 
 > Executed inline in the feature worktree. The user authorized all findings from the formatting review.
 

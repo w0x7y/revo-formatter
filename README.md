@@ -7,8 +7,26 @@ source coordinates. The supported syntax is that of Revo revision
 
 The initial supported and verified build platform is native
 `x86_64-unknown-linux-gnu`. The build rejects other host/target combinations.
-Other platforms need separate build and ABI validation. Editor integrations
-are planned for later; this version provides the CLI and library.
+Other platforms need separate build and ABI validation.
+
+Locally installable integrations provide formatting and file recognition for
+[Neovim](editors/neovim/README.md), [VS Code](editors/vscode/README.md), and
+[Zed](editors/zed/README.md). They format unsaved buffers through an installed
+`revofmt`; save formatting is opt-in. Start with the
+[editor integration guide](editors/README.md).
+
+## Repository layout
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | Rust library, CLI, layout, and preservation tests |
+| `bridge/` | Zig interface to the pinned frontend |
+| `vendor/revo/` | Unchanged upstream source and checksums |
+| `tests/` | CLI process tests and attributed corpus fixtures |
+| `editors/` | Self-contained Neovim, VS Code, and Zed packages |
+| `scripts/` | Repository verification commands |
+| `docs/` | Current guides, designs, plans, and verification records |
+| `research/` | Dated upstream investigations |
 
 ## Build from source
 
@@ -82,10 +100,10 @@ Defaults are two spaces per indentation level and 80 display columns.
 `--indent-width` accepts 1 through 8; `--line-width` accepts 20 through 240.
 Width is a soft target. Long literals, comments, and syntax that cannot safely
 break can exceed it. The formatter can retain compact spacing through its
-validated conservative fallback. Existing statement newlines and comment
-boundaries are retained. Short expression continuations, argument lists and
-return tables collapse onto one line when they fit. Unary minus stays attached
-to its operand, and indexing uses `nums[y]`.
+validated conservative fallback. Comment boundaries are retained. Short block
+statements inside pipe expressions can share a line. Short expression
+continuations, argument lists and return tables collapse onto one line when
+they fit. Unary minus stays attached to its operand, and indexing uses `nums[y]`.
 
 Control-flow headers are measured independently of their `do ... end` bodies.
 Generic lists have their own formatting group; expanded lists put each argument
@@ -106,6 +124,8 @@ The CLI and library apply conservative input limits before parsing: 262,144
 UTF-8 source bytes, 4,096 expanded lexer tokens, and 32 combined delimiter and
 embedded-source levels. Shared weighted budgets also limit recursive parser
 forms, AST traversal, and layout, including flat operators and postfix chains.
+Possible source blocks share the layout budget with recursive prefixes and
+operators, including combinations spread across decoded fragments.
 Interpolation and quasiquote bodies count toward these budgets even though their
 literal bytes remain opaque to formatting. Ordinary literal and comment contents
 count toward the byte limit, without counting their punctuation as syntax.
@@ -202,8 +222,8 @@ Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
-See the [final source check](docs/verification/2026-10-06-final-check.md) for
-current verification and the [earlier architecture report](docs/verification/architecture-deepening.md)
+See the [documentation handoff](docs/verification/2026-10-06-documentation-handoff.md) for
+current verification and review status, and the [earlier architecture report](docs/verification/architecture-deepening.md)
 for stage-specific package checks and measurements.
 
 ## Development and verification
@@ -213,6 +233,7 @@ Use exact Zig 0.17.0 on `PATH`, or export its absolute executable once:
 ```sh
 export ZIG=/absolute/path/to/zig-0.17.0/zig
 cargo test --all-targets
+cargo test --release --all-targets
 cargo test --doc
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
@@ -221,13 +242,36 @@ cargo fmt --check
 cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
+scripts/verify-editors
 ```
 
-The latest source check passed 77 Rust tests (60 library, one binary, 16 CLI) and
-nine filtered Zig tests. The Rust suite includes the 120-case corpus matrix;
-these cases are not 120 additional test functions. The Zig filters select local
-bridge, index and admission tests without running upstream runtime tests.
+The release test suite checks the same admission boundaries as debug. Keep both
+runs when changing recursive paths, grammar-sensitive weights or input limits.
+
+Editor checks require Neovim >=0.10, Node.js >=20, npm, and Python >=3.11.
+The script uses `target/release/revofmt` by default; set `REVOFMT_BIN` to an
+absolute executable path to use another build. VS Code's package README
+documents dependency installation and VSIX packaging separately; its pinned
+packaging tool requires Node.js >=22.
+
+The [documentation handoff](docs/verification/2026-10-06-documentation-handoff.md)
+records the latest editor checks: 32 Neovim, 49 VS Code and 15 Zed tests, plus
+native VS Code host coverage and its limits. The
+[original editor verification record](docs/verification/2026-10-06-editor-integrations.md)
+retains the earlier package checks and reviews.
+
+The latest source check passed 89 Rust tests (72 library, one binary, 16 CLI) in
+both debug and release, and ten filtered Zig tests. The Rust suite includes the
+120-case corpus matrix; these cases are not 120 additional test functions. The
+Zig filters select local bridge, index and admission tests without running
+upstream runtime tests.
 `cargo audit` is an optional additional dependency check when installed.
+
+Native VS Code host checks and VSIX packaging are documented in the
+[VS Code guide](editors/vscode/README.md#development-and-verification). For a source
+package check with dependencies already cached, run
+`cargo package --offline --allow-dirty` with the same `ZIG` setting. Editor
+packages and tooling dependencies are excluded from the Rust crate.
 
 For a quick manual test, save this intentionally compact source as `example.rv`:
 

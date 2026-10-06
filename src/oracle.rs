@@ -479,12 +479,7 @@ mod tests {
     }
     #[test]
     fn generated_blocks_and_quote_inner_nodes_are_not_source_regions() {
-        for source in [
-            "1 |> 2",
-            "do 1 end |> 2",
-            "import { \"a\", \"b\" }",
-            "`do let x = 1 end`",
-        ] {
+        for source in ["1 |> 2", "import { \"a\", \"b\" }", "`do let x = 1 end`"] {
             let analysis = analyze(source).unwrap();
             assert!(
                 !analysis.regions().iter().any(|r| r.kind == "block"),
@@ -540,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn source_metadata_keeps_opaque_and_generated_descendants_excluded() {
+    fn source_metadata_excludes_opaque_descendants_and_synthetic_hints() {
         for (source, token_count, expected) in [
             (
                 "import { \"a\", \"b\" }; let x = 1",
@@ -575,6 +570,132 @@ mod tests {
                     "{source}: {token:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn source_block_envelopes_follow_ast_children_and_ignore_keyword_names() {
+        for (source, expected) in [
+            ("do foo.end end", vec!["do foo.end end"]),
+            (
+                "do let do = 1; let end = 2 end",
+                vec!["do let do = 1; let end = 2 end"],
+            ),
+            ("fn f(do,end) do foo.do end", vec!["do foo.do end"]),
+            (
+                "do/do do/end end end",
+                vec!["do/do do/end end end", "do/end end"],
+            ),
+            (
+                "do test \"x\" do foo.end end end",
+                vec!["do test \"x\" do foo.end end end", "do foo.end end"],
+            ),
+            (
+                "do declare x.end = number end",
+                vec!["do declare x.end = number end"],
+            ),
+            (
+                "do 1 |> do foo.end end end",
+                vec!["do 1 |> do foo.end end end", "do foo.end end"],
+            ),
+            (
+                "do let x = do 1 end |> 2 end",
+                vec!["do let x = do 1 end |> 2 end", "do 1 end"],
+            ),
+            (
+                "do let x = `do end`; let y = \"#{do 1 end}\" end",
+                vec!["do let x = `do end`; let y = \"#{do 1 end}\" end"],
+            ),
+        ] {
+            let analysis = analyze(source).unwrap();
+            let actual: Vec<_> = analysis
+                .regions()
+                .iter()
+                .filter(|r| r.kind == "block")
+                .map(|r| &source[r.start..r.end])
+                .collect();
+            assert_eq!(actual, expected, "{source}");
+        }
+        let source = "fn f() do let x = do foo.end end end";
+        let analysis = analyze(source).unwrap();
+        let body = &source[source.find("do").unwrap()..];
+        for kind in ["body", "block"] {
+            assert!(
+                analysis
+                    .regions()
+                    .iter()
+                    .any(|r| r.kind == kind && &source[r.start..r.end] == body)
+            );
+        }
+        let source = "do/end do foo.end end end";
+        let analysis = analyze(source).unwrap();
+        for kind in ["statement", "block"] {
+            assert!(
+                analysis
+                    .regions()
+                    .iter()
+                    .any(|r| r.kind == kind && r.start == 0 && r.end == source.len())
+            );
+        }
+    }
+
+    #[test]
+    fn piped_source_blocks_retain_only_proven_block_metadata() {
+        for (source, expected) in [
+            ("do 1 end |> 2", vec!["do 1 end"]),
+            (
+                "1 |> do do foo() bar() end baz() end",
+                vec!["do do foo() bar() end baz() end", "do foo() bar() end"],
+            ),
+            (
+                "1 |> do fn f() do foo.end end end",
+                vec!["do fn f() do foo.end end end", "do foo.end end"],
+            ),
+            (
+                "1 |> do `do end`; \"#{do 1 end}\" end",
+                vec!["do `do end`; \"#{do 1 end}\" end"],
+            ),
+        ] {
+            let analysis = analyze(source).unwrap();
+            let actual: Vec<_> = analysis
+                .regions()
+                .iter()
+                .map(|r| (r.kind.as_str(), &source[r.start..r.end]))
+                .collect();
+            let expected: Vec<_> = expected.into_iter().map(|block| ("block", block)).collect();
+            assert_eq!(actual, expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn source_block_completion_scales_with_repeated_final_nested_declarations() {
+        // Trusted metadata inputs deliberately exceed public token admission,
+        // like the existing many-statements/arms test; nesting stays bounded.
+        let unit = "do suite \"x\" do test \"y\" do let x = do foo.end end end end end";
+        let expected = [
+            unit,
+            "do test \"y\" do let x = do foo.end end end end",
+            "do let x = do foo.end end end",
+            "do foo.end end",
+        ];
+        for count in [200, 400, 800] {
+            let source = std::iter::repeat_n(unit, count)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let started = std::time::Instant::now();
+            let analysis = analyze(&source).unwrap();
+            eprintln!(
+                "nested block metadata: {count} units / {} bytes in {:?}",
+                source.len(),
+                started.elapsed()
+            );
+            let actual: Vec<_> = analysis
+                .regions()
+                .iter()
+                .filter(|r| r.kind == "block")
+                .map(|r| &source[r.start..r.end])
+                .collect();
+            assert_eq!(actual, expected.repeat(count));
         }
     }
 

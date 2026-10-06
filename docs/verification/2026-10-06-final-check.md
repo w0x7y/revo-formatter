@@ -1,5 +1,12 @@
 # Formatter final check
 
+Historical final check of the formatting-rules and layout-deepening stage on
+2026-10-06, before editor integration and the architecture follow-up. Counts,
+review state and documentation inventory below apply to that tree. Use the
+[documentation index](../README.md) for current instructions and the
+[later source/editor check](2026-10-06-editor-final-check.md) for subsequent
+repairs, checks and coverage limits.
+
 Reviewed the complete feature against `683d5c2a` (then the branch's `HEAD`,
 `main`, and `origin/main`), including all unstaged changes and relevant untracked
 plans/verification notes. No feature commits or staged changes were present.

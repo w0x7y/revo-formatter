@@ -29,13 +29,24 @@ pub fn tokens(alloc: std.mem.Allocator, source: []const u8, lexed: []const Lexer
 }
 
 pub fn regions(alloc: std.mem.Allocator, source: []const u8, lexed: []const Lexer.Token, root: *ast.Node) ![]const Range {
-    var collector: Collector = .{ .alloc = alloc, .source = source, .index = try TokenIndex.init(alloc, lexed) };
+    const block_ends = try alloc.alloc(?usize, lexed.len);
+    @memset(block_ends, null);
+    var collector: Collector = .{ .alloc = alloc, .source = source, .index = try TokenIndex.init(alloc, lexed), .block_ends = block_ends };
     // A synthetic module list is a real list of source statements; a grouped
     // import is also synthetic, but its span is only the `import` keyword.
     if (root.expr == .block and root.synthetic_block and !collector.groupedImport(root)) {
-        for (root.expr.block) |child| try collector.statement(child);
+        for (root.expr.block) |child| _ = try collector.statement(child);
     } else if (root.expr != .block or !root.synthetic_block) {
-        try collector.statement(root);
+        _ = try collector.statement(root);
+    }
+    // Keep the existing hint order. All endpoints are finalized from the same
+    // child-first block table, after the single AST traversal has completed.
+    for (collector.result.items) |*region| {
+        if (std.mem.eql(u8, region.kind, "block") or std.mem.eql(u8, region.kind, "statement") or std.mem.eql(u8, region.kind, "body")) {
+            if (collector.blockEnd(region.start)) |end| {
+                if (region.end <= end) region.end = end;
+            }
+        }
     }
     return collector.result.items;
 }
@@ -51,7 +62,7 @@ const TokenIndex = struct {
     arrows: []const Entry,
     opaque_starts: []const Entry,
     opaque_max_ends: []const usize,
-    block_ends: []const ?usize,
+    block_closers: []const Entry,
 
     fn lessThan(_: void, a: Entry, b: Entry) bool {
         return a.offset < b.offset or (a.offset == b.offset and a.token_index < b.token_index);
@@ -60,19 +71,10 @@ const TokenIndex = struct {
     fn init(alloc: std.mem.Allocator, lexed: []const Lexer.Token) !TokenIndex {
         const starts = try alloc.alloc(Entry, lexed.len);
         const ends = try alloc.alloc(Entry, lexed.len);
-        const block_ends = try alloc.alloc(?usize, lexed.len);
-        @memset(block_ends, null);
-        var open_blocks: std.ArrayList(usize) = .empty;
+        var block_closers: std.ArrayList(Entry) = .empty;
         for (lexed, 0..) |token, i| {
             starts[i] = .{ .offset = token.start, .token_index = i };
             ends[i] = .{ .offset = token.end, .token_index = i };
-            switch (token.type) {
-                .kw_do => try open_blocks.append(alloc, i),
-                .kw_end => if (open_blocks.pop()) |opener| {
-                    block_ends[opener] = token.end;
-                },
-                else => {},
-            }
         }
         std.mem.sort(Entry, starts, {}, lessThan);
         std.mem.sort(Entry, ends, {}, lessThan);
@@ -83,6 +85,7 @@ const TokenIndex = struct {
         var max_end: usize = 0;
         for (starts) |entry| {
             const token = lexed[entry.token_index];
+            if (token.type == .kw_end) try block_closers.append(alloc, entry);
             if (token.type == .bar) try bars.append(alloc, entry);
             if (token.type == .fat_arrow) try arrows.append(alloc, entry);
             switch (token.type) {
@@ -102,7 +105,7 @@ const TokenIndex = struct {
             .arrows = arrows.items,
             .opaque_starts = opaque_starts.items,
             .opaque_max_ends = opaque_max_ends.items,
-            .block_ends = block_ends,
+            .block_closers = block_closers.items,
         };
     }
 
@@ -129,16 +132,6 @@ const TokenIndex = struct {
             if (token.end == node.span.end and token.type == .kw_import) return true;
         }
         return false;
-    }
-
-    fn concreteBlockEnd(self: *const TokenIndex, node: *ast.Node) ?usize {
-        if (node.synthetic_block) return null;
-        const i = lowerBound(self.starts, node.span.start);
-        if (i == self.starts.len or self.starts[i].offset != node.span.start) return null;
-        const token_index = self.starts[i].token_index;
-        if (self.lexed[token_index].type != .kw_do) return null;
-        const end = self.block_ends[token_index] orelse return null;
-        return if (node.span.end <= end) end else null;
     }
 
     fn insideOpaque(self: *const TokenIndex, offset: usize) bool {
@@ -173,28 +166,81 @@ const Collector = struct {
     source: []const u8,
     index: TokenIndex,
     result: std.ArrayList(Range) = .empty,
+    block_ends: []?usize = &.{},
+
+    fn blockEnd(self: *const Collector, start: usize) ?usize {
+        const i = TokenIndex.lowerBound(self.index.starts, start);
+        if (i == self.index.starts.len or self.index.starts[i].offset != start) return null;
+        return self.block_ends[self.index.starts[i].token_index];
+    }
+
+    fn blockOpener(self: *const Collector, node: *ast.Node) ?usize {
+        if (node.expr != .block or node.synthetic_block) return null;
+        const i = TokenIndex.lowerBound(self.index.starts, node.span.start);
+        if (i == self.index.starts.len or self.index.starts[i].offset != node.span.start) return null;
+        const opener = self.index.starts[i].token_index;
+        if (self.index.lexed[opener].type != .kw_do) return null;
+        // Pipe lowering can wrap a source block in a generated block with the
+        // same start. Its first binding overlaps the opener; real statements
+        // begin strictly inside the source block.
+        if (node.expr.block.len > 0 and node.expr.block[0].span.start <= node.span.start) return null;
+        return opener;
+    }
+
+    fn resolveBlock(self: *Collector, node: *ast.Node, opener: usize, descendants_end: usize) !usize {
+        // Empty spans already include `end`. Nonempty spans omit it, possibly
+        // through wrappers; child completion carries every descendant closer.
+        if (node.expr.block.len == 0) {
+            const i = TokenIndex.lowerBound(self.index.ends, node.span.end);
+            if (i < self.index.ends.len and self.index.ends[i].offset == node.span.end) {
+                const closer = self.index.lexed[self.index.ends[i].token_index];
+                if (closer.type == .kw_end) {
+                    self.block_ends[opener] = closer.end;
+                    return closer.end;
+                }
+            }
+            return error.InvalidBlockEnvelope;
+        }
+        const i = TokenIndex.lowerBound(self.index.block_closers, descendants_end);
+        if (i == self.index.block_closers.len) return error.InvalidBlockEnvelope;
+        const end = self.index.lexed[self.index.block_closers[i].token_index].end;
+        self.block_ends[opener] = end;
+        return end;
+    }
 
     fn add(self: *Collector, kind: []const u8, start: usize, end: usize) !void {
         if (start >= end or end > self.source.len) return;
         // Require lexical endpoints, excluding spans inside decoded strings or
-        // rewritten quasiquotes. The traversal also avoids generated block trees.
+        // rewritten quasiquotes. Synthetic nodes never emit layout hints.
         if (TokenIndex.exact(self.index.starts, start) and TokenIndex.exact(self.index.ends, end))
             try self.result.append(self.alloc, .{ .kind = kind, .start = start, .end = end });
     }
     fn groupedImport(self: *Collector, node: *ast.Node) bool {
         return self.index.groupedImport(node);
     }
-    fn statement(self: *Collector, node: *ast.Node) anyerror!void {
-        const block_end = self.index.concreteBlockEnd(node);
-        if (node.expr == .block and block_end == null) return;
-        try self.add("statement", node.span.start, block_end orelse node.span.end);
-        try self.visitNode(node, block_end);
+    fn statement(self: *Collector, node: *ast.Node) anyerror!usize {
+        const emit = node.expr != .block or self.blockOpener(node) != null;
+        if (emit) try self.add("statement", node.span.start, node.span.end);
+        return self.visitNode(node, emit);
     }
-    fn visitNode(self: *Collector, node_: *ast.Node, block_end: ?usize) anyerror!void {
-        if (node_.expr == .quasiquote) return;
-        // Interpolation expands to calls; all descendants still live inside the
-        // opaque original string, so they cannot supply layout boundaries.
-        if (self.index.insideOpaque(node_.span.start)) return;
+    fn visitNode(self: *Collector, node_: *ast.Node, emit: bool) anyerror!usize {
+        if (node_.expr == .quasiquote or self.index.insideOpaque(node_.span.start)) return node_.span.end;
+        if (node_.expr == .block) {
+            const opener = self.blockOpener(node_);
+            // Concrete block facts remain valid beneath generated wrappers and
+            // supply Rust's only block-pairing authority. The emit flag still
+            // suppresses synthetic statement/header hints in those subtrees.
+            if (opener != null) try self.add("block", node_.span.start, node_.span.end);
+            var end = node_.span.end;
+            for (node_.expr.block) |child| {
+                // Keep generated statement/header hints suppressed while walking
+                // through to any independently proven source blocks.
+                const child_end = if (emit and opener != null) try self.statement(child) else try self.visitNode(child, false);
+                end = @max(end, child_end);
+            }
+            return if (opener) |open| self.resolveBlock(node_, open, end) else end;
+        }
+        if (!emit) return @max(node_.span.end, try self.walk(ast.Expr, node_.expr, false));
         switch (node_.expr) {
             .fn_expr => |value| try self.headerBody(node_, value.body),
             .if_expr => |value| try self.headerBody(node_, value.then_expr),
@@ -205,12 +251,6 @@ const Collector = struct {
                 try self.add("unary_sign", node_.span.start, node_.span.end);
             },
             else => {},
-        }
-        if (node_.expr == .block) {
-            const end = block_end orelse return;
-            try self.add("block", node_.span.start, end);
-            for (node_.expr.block) |child| try self.statement(child);
-            return;
         }
         if (node_.expr == .match_expr) {
             try self.add("match_expression", node_.span.start, node_.span.end);
@@ -231,7 +271,7 @@ const Collector = struct {
                 after = arm.then.span.end;
             }
         }
-        try self.walk(ast.Expr, node_.expr);
+        return @max(node_.span.end, try self.walk(ast.Expr, node_.expr, true));
     }
     fn headerBody(self: *Collector, node: *ast.Node, body: *ast.Node) !void {
         // Header ends are body starts, rather than AST endpoints. Only real
@@ -239,33 +279,34 @@ const Collector = struct {
         if (node.span.start >= body.span.start or self.index.insideOpaque(body.span.start)) return;
         if (!TokenIndex.exact(self.index.starts, node.span.start) or !TokenIndex.exact(self.index.starts, body.span.start)) return;
         try self.result.append(self.alloc, .{ .kind = "header", .start = node.span.start, .end = body.span.start });
-        try self.add("body", body.span.start, self.index.concreteBlockEnd(body) orelse body.span.end);
+        try self.add("body", body.span.start, body.span.end);
     }
-    fn walk(self: *Collector, comptime T: type, value: T) anyerror!void {
-        if (T == ast.Span) return;
-        if (T == *ast.Node) return self.visitNode(value, self.index.concreteBlockEnd(value));
+    fn walk(self: *Collector, comptime T: type, value: T, emit: bool) anyerror!usize {
+        if (T == ast.Span) return value.end;
+        if (T == *ast.Node) return self.visitNode(value, emit);
+        var end: usize = 0;
         switch (@typeInfo(T)) {
             .pointer => |info| switch (info.size) {
-                .one => try self.walk(info.child, value.*),
+                .one => end = try self.walk(info.child, value.*, emit),
                 .slice => if (info.child != u8) {
-                    for (value) |item| try self.walk(info.child, item);
+                    for (value) |item| end = @max(end, try self.walk(info.child, item, emit));
                 },
                 else => {},
             },
             .optional => |info| if (value) |inner| {
-                try self.walk(info.child, inner);
+                end = try self.walk(info.child, inner, emit);
             },
             .@"struct" => |info| inline for (info.field_names, info.field_types) |name, Field| {
-                try self.walk(Field, @field(value, name));
+                end = @max(end, try self.walk(Field, @field(value, name), emit));
             },
             .@"union" => |info| inline for (info.field_names, info.field_types) |name, Field| {
                 if (@as(info.tag_type.?, value) == @field(info.tag_type.?, name)) {
-                    try self.walk(Field, @field(value, name));
-                    return;
+                    return self.walk(Field, @field(value, name), emit);
                 }
             },
             else => {},
         }
+        return end;
     }
 };
 
@@ -329,32 +370,15 @@ test "indexed bars keep inclusive lower and exclusive upper bounds and lexical s
     try std.testing.expectEqual(Lexer.TokenType.comment, lexed[first + 1].type);
 }
 
-test "indexed block closers and grouped imports use raw lexer spans" {
+test "indexed grouped imports and docs use raw lexer spans" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const lexed = try Lexer.lexAt(alloc, "do do end do end end do", .{});
-    const index = try TokenIndex.init(alloc, lexed);
     var node: ast.Node = .{
-        .span = .{ .start = 0, .end = 2, .line = 1, .column = 1 },
+        .span = .{ .start = 0, .end = 6, .line = 1, .column = 1 },
         .expr = .{ .block = &.{} },
+        .synthetic_block = true,
     };
-    for ([_]struct { opener: usize, closer: ?usize }{
-        .{ .opener = 0, .closer = 20 },
-        .{ .opener = 3, .closer = 9 },
-        .{ .opener = 10, .closer = 16 },
-        .{ .opener = 21, .closer = null },
-    }) |pair| {
-        node.span.start = pair.opener;
-        node.span.end = pair.opener + 2;
-        try std.testing.expectEqual(pair.closer, index.concreteBlockEnd(&node));
-    }
-    node.span.start = 0;
-    node.span.end = 21;
-    try std.testing.expectEqual(@as(?usize, null), index.concreteBlockEnd(&node));
-    node.span.end = 2;
-    node.synthetic_block = true;
-    try std.testing.expectEqual(@as(?usize, null), index.concreteBlockEnd(&node));
 
     const imports = [_]Lexer.Token{
         .{ .type = .ident, .text = "", .line = 1, .column = 1, .start = 0, .end = 0 },

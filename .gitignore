@@ -3,3 +3,7 @@
 /target/
 /.tools/
 /.worktrees/
+/.superpowers/
+/editors/vscode/node_modules/
+/editors/vscode/*.vsix
+/editors/zed/tests/__pycache__/
