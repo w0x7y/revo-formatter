@@ -53,6 +53,7 @@ do\n  let end = 1\n  foo()\nend\n
 - [ ] Cover comments between a dot and keyword field, keyword names in parameters/declarations/labels, nested final blocks and declaration spans that omit descendants. Use real parser acceptance to select valid fixtures; preserve compact header and parser-sensitive adjacency expectations.
 - [ ] Record focused failures before modifying ownership.
 - [ ] Resolve concrete block envelopes child-first in the existing source collector, preserving generated/opaque exclusion and admission. Reuse one table of complete block envelopes for block, statement and header source hints. Remove raw keyword pairing as semantic authority.
+- [ ] Retain proven source-block facts beneath generated wrappers, including multi-statement and nested blocks in lowered pipe expressions. Synthetic statement/header hints and opaque descendants remain excluded; test both facts and resulting block indentation.
 - [ ] Populate Rust block pairs from emitted `block` hints, retaining lexical punctuation pairing and range-bounded scope behavior. Remove obsolete keyword-pairing logic rather than layering a second path.
 - [ ] Run focused formatting/metadata tests, full formatting/corpus/admission checks and exact Zig tests. Investigate any golden difference rather than blindly regenerating expected output. Commit only this task's files, report results, and obtain a fresh independent review.
 

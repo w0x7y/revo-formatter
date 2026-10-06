@@ -40,6 +40,10 @@ Use existing source filtering for generated and opaque descendants. Do not
 introduce another parser, a grammar keyword exclusion list, a new shared runtime,
 or a new externally exposed test hook.
 
+Generated wrappers must not hide the facts for actual source-backed blocks
+nested inside them. Preserve those block envelopes for layout, while keeping
+synthetic statement/header hints and opaque descendants excluded.
+
 ## Verification and contracts
 
 - Keep token/comment tape equality, complete AST equality modulo coordinates,
