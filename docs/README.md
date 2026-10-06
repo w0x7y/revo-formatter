@@ -2,7 +2,8 @@
 
 ## Current guides
 
-- [Project README](../README.md): build, CLI/library use, formatting rules and testing.
+- [Project README](../README.md): installation, examples, editor setup and full verification commands.
+- [Formatter reference](formatter.md): CLI/library behavior, layout rules, preservation, corpus coverage and repository layout.
 - [Contributor instructions](../AGENTS.md): contracts and change workflow.
 - [Domain glossary](../CONTEXT.md): source and layout vocabulary.
 - [Architecture](architecture.md): implemented flow and module ownership.

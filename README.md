@@ -1,106 +1,60 @@
-# revofmt
+**This project is making heavily use of AI Agents, if you have a problem with that just don't use it. Thanks!**
 
-`revofmt` is a Rust CLI and library for formatting Revo source. It validates
-every result with the pinned upstream frontend and preserves syntax modulo
-source coordinates. The supported syntax is that of Revo revision
-`b571298b6fc95bc863548f118354c8d077792f6f`.
+# `revofmt`, a formatter for revo
 
-The initial supported and verified build platform is native
-`x86_64-unknown-linux-gnu`. The build rejects other host/target combinations.
-Other platforms need separate build and ABI validation.
+a command line tool and rust library for [revo](https://github.com/if-not-nil/revo).
+it formats your code, checks that it parses the same way, and leaves
+literal and comment bytes alone. formatting the result again gives the same bytes.
 
-Editor integrations provide formatting and file recognition for
-[Neovim](editors/neovim/README.md), [VS Code](editors/vscode/README.md), and
-[Zed](editors/zed/README.md). They format unsaved buffers through an installed
-`revofmt`; save formatting is opt-in. Start with the
-[editor integration guide](editors/README.md).
+[get](#get) | [how to use](#how-to-use) | [editors](#editors) | [build from source](#build-from-source) | [reference](docs/formatter.md)
 
-## Repository layout
+## get
 
-| Directory | Contents |
-| --- | --- |
-| `src/` | Rust library, CLI, layout, and preservation tests |
-| `bridge/` | Zig interface to the pinned frontend |
-| `vendor/revo/` | Unchanged upstream source and checksums |
-| `tests/` | CLI process tests and attributed corpus fixtures |
-| `editors/` | Self-contained Neovim, VS Code, and Zed packages |
-| `scripts/` | Repository verification commands |
-| `docs/` | Current guides, designs, plans, and verification records |
-| `research/` | Dated upstream investigations |
-
-## Install a prebuilt formatter
-
-Download `revofmt-linux-x86_64-gnu` and its checksum/license files from the
-[versioned releases](https://github.com/w0x7y/revo-formatter/releases).
-The current binary requires Linux x86_64 GNU with glibc >=2.34 and normal system
-libraries, including `libgcc_s`. Verify `SHA256SUMS` from the download directory,
-make the binary executable, then put it on PATH or use its absolute path.
-Running it requires no Rust, Zig or Revo installation.
-
-For Neovim, use [revofmt.nvim](https://github.com/w0x7y/revofmt.nvim). Its lazy.nvim
-install hook downloads and verifies the formatter automatically. Start with that
-plugin's quick-start guide; a formatter repository checkout is unnecessary.
-
-## Build from source
-
-Install Rust with edition 2024 support and exact stable Zig **0.17.0**.
-The build script uses `zig` from `PATH`, or the executable selected by `ZIG`.
-It never downloads tools or source. See [THIRD_PARTY.md](THIRD_PARTY.md) for
-the pinned archive checksum, vendored source provenance, and license notices.
-
-With Zig 0.17.0 on `PATH`:
+[download a release](https://github.com/w0x7y/revo-formatter/releases).
+the current binary is for linux x86_64 GNU, with glibc >=2.34 and `libgcc_s`.
+you don't need rust, zig or a revo installation to run it.
 
 ```sh
-zig version
-cargo build --release
-cargo test --all-targets
+# download the binary, checksum and license notices into an empty directory
+mkdir revofmt-download
+cd revofmt-download
+for file in revofmt-linux-x86_64-gnu SHA256SUMS LICENSE REVO-LICENSE.txt THIRD_PARTY.md; do
+  curl --fail --location --output "$file" \
+    "https://github.com/w0x7y/revo-formatter/releases/download/v0.1.0/$file"
+done
+
+# check it, then install it
+sha256sum --check SHA256SUMS && \
+  install -Dm755 revofmt-linux-x86_64-gnu "$HOME/.local/bin/revofmt"
+"$HOME/.local/bin/revofmt" --version
 ```
 
-Or select its executable explicitly:
+make sure `~/.local/bin` is on your PATH before using `revofmt` below.
+if you're here for neovim, [the plugin](https://github.com/w0x7y/revofmt.nvim)
+can download and verify the formatter for you.
+
+## how to use
 
 ```sh
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo build --release
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo test --all-targets
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
-cargo fmt --check
+printf 'let x=1' | revofmt
+# let x = 1
+
+revofmt example.rv                       # print it, leave the file alone
+revofmt --check first.rv second.rv       # check without writing
+revofmt --write first.rv second.rv       # format in place
+revofmt --indent-width 4 example.rv      # default: 2 spaces
+revofmt --line-width 24 example.rv       # default: 80 columns
+revofmt -- --example.rv                  # a filename starting with a dash
+revofmt --help
 ```
 
-The resulting `target/release/revofmt` statically includes the Revo frontend.
-Zig is a compile-time dependency. Running the binary requires no installed
-Zig or Revo executable; normal Linux system libraries still apply.
-
-## CLI usage
-
-```sh
-# Read stdin and print formatted source. An explicit - also reads stdin.
-printf 'let x=1' | target/release/revofmt
-printf 'let x=1' | target/release/revofmt -
-
-# Print one file without editing it.
-target/release/revofmt example.rv
-
-# Check or write several explicit files.
-target/release/revofmt --check first.rv second.rv
-target/release/revofmt --write first.rv second.rv
-
-# Override layout settings.
-target/release/revofmt --indent-width 4 --line-width 24 example.rv
-
-# A filename starting with a dash follows --.
-target/release/revofmt -- --example.rv
-
-target/release/revofmt --help
-target/release/revofmt --version
-```
-
-For example, `let x=1` becomes `let x = 1` followed by a newline.
-Width-driven formatting, tested with `--line-width 24`, changes:
+with `--line-width 24`, this:
 
 ```revo
 print(first_argument, second_argument)
 ```
 
-into:
+becomes:
 
 ```revo
 print(
@@ -109,69 +63,52 @@ print(
 )
 ```
 
-Defaults are two spaces per indentation level and 80 display columns.
-`--indent-width` accepts 1 through 8; `--line-width` accepts 20 through 240.
-Width is a soft target. Long literals, comments, and syntax that cannot safely
-break can exceed it. The formatter can retain compact spacing through its
-validated conservative fallback. Comment boundaries are retained. Short block
-statements inside pipe expressions can share a line. Short expression
-continuations, argument lists and return tables collapse onto one line when
-they fit. Unary minus stays attached to its operand, and indexing uses `nums[y]`.
+width is a soft target. comments, literals and syntax that can't safely break can
+go past it. indentation accepts 1 to 8 spaces; width accepts 20 to 240 columns.
 
-Control-flow headers are measured independently of their `do ... end` bodies.
-Generic lists have their own formatting group; expanded lists put each argument
-on its own indented line. Long call arguments can wrap while a short generic list
-stays inline. Operator chains, including comparisons and pipes,
-fill available columns with a single continuation indentation level. Trailing
-operator comments stay attached to the preceding line. Function expression
-bodies without `do` stay inline when short and receive indentation when expanded.
-Parser-sensitive whitespace can still require conservative layout, and long
-unbreakable expressions or comments can exceed the target.
+exit codes are `0` for success, `1` when `--check` finds a difference, and `2` for
+an error. diagnostics go to stderr. invalid syntax produces no formatted output.
 
-Print mode accepts one input. `--check` also accepts stdin, including when
-no input is specified. `--write` requires file paths and rejects stdin,
-symlinks, and nonregular files. `--check` and `--write` are mutually exclusive.
-There is no directory discovery or configuration file support in this version.
+`--write` validates every input before changing any file. each replacement is
+atomic; the whole batch isn't. it rejects stdin, symlinks and nonregular files.
+there's no directory discovery or config file yet.
 
-The CLI and library apply conservative input limits before parsing: 262,144
-UTF-8 source bytes, 4,096 expanded lexer tokens, and 32 combined delimiter and
-embedded-source levels. Shared weighted budgets also limit recursive parser
-forms, AST traversal, and layout, including flat operators and postfix chains.
-Possible source blocks share the layout budget with recursive prefixes and
-operators, including combinations spread across decoded fragments.
-Interpolation and quasiquote bodies count toward these budgets even though their
-literal bytes remain opaque to formatting. Ordinary literal and comment contents
-count toward the byte limit, without counting their punctuation as syntax.
-Limits apply to generated candidates too; space for a final newline can therefore
-be necessary. A limit failure returns `FormatError::Validation`, or CLI exit code
-2 with no output or batch writes. CLI reads stop after one byte beyond the byte
-limit. See [the exact admission policy](docs/verification/input-limits.md).
+## editors
 
-Formatted source goes to stdout only in print mode. Check differences and
-errors go to stderr with their input names. Exit codes are:
+- [neovim](https://github.com/w0x7y/revofmt.nvim): install with lazy.nvim, then `:RevoFormat`.
+- [vs code](editors/vscode/README.md): install the extension package, then use Format Document.
+- [zed](editors/zed/README.md): install the local extension and configure `revofmt` as the formatter.
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success, or all checked inputs already formatted |
-| 1 | At least one checked input needs formatting |
-| 2 | Usage, I/O, syntax, or validation error |
+all three format the whole unsaved buffer. format-on-save is opt-in.
+the [editor guide](editors/README.md) has setup and verification commands.
 
-An error in any checked input takes precedence over code 1. Invalid syntax
-produces no formatted source. Write mode computes and validates every input
-before changing any file, so a malformed or unreadable input prevents all
-writes. Each changed file uses a new temporary file in the same directory,
-preserves the original permissions, flushes its contents, and replaces the
-destination atomically. Unchanged files keep their existing inode and
-modification time. Temporary files are removed on errors, with a diagnostic
-if cleanup itself fails.
+## build from source
 
-Multiple file writes are not a single transaction. A later replacement or
-other I/O failure can leave earlier writes completed. The diagnostic lists
-those completed paths so the result can be inspected.
+you need rust with edition 2024 support and **zig 0.17.0**.
+the verified build platform is native linux x86_64 GNU; other host/target
+combinations are rejected. builds never download tools or source.
 
-## Rust library usage
+```sh
+git clone https://github.com/w0x7y/revo-formatter.git
+cd revo-formatter
 
-Use this checkout as a local dependency:
+zig version                            # must be exactly 0.17.0
+cargo build --release
+printf 'let x=1' | target/release/revofmt
+```
+
+if zig isn't on your PATH, point `ZIG` at its executable:
+
+```sh
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo build --release
+```
+
+the frontend is linked into the binary. zig is only needed to build it.
+[THIRD_PARTY.md](THIRD_PARTY.md) records the toolchain pin and vendored source.
+
+## in rust
+
+use this checkout as a dependency:
 
 ```toml
 [dependencies]
@@ -182,66 +119,28 @@ revofmt = { path = "/absolute/path/to/revo-formatter" }
 use revofmt::{FormatError, FormatOptions, format};
 
 fn main() -> Result<(), FormatError> {
-    let options = FormatOptions {
-        indent_width: 2,
-        line_width: 80,
-    };
-    let output = format("let x=1", &options)?;
+    let output = format("let x=1", &FormatOptions::default())?;
     assert_eq!(output, "let x = 1\n");
     Ok(())
 }
 ```
 
-`FormatOptions::default()` supplies the CLI defaults. `FormatError` describes
-invalid options, source syntax errors with byte offsets, or validation
-failures. `UPSTREAM_REVISION` exposes the syntax revision.
+## the limits
 
-## Preservation and validation
+supported syntax is pinned to revo revision
+`b571298b6fc95bc863548f118354c8d077792f6f`.
+validation compares token/comment bytes and the syntax tree, ignoring source
+coordinates. it doesn't resolve imports, check types or execute macros.
+a macro that reads source positions can observe formatting changes.
 
-All non-whitespace token spellings and the interleaved order of tokens and
-comments stay unchanged. Literal and comment contents remain opaque,
-including documentation comments, quasiquotes, interpolation, and indentation
-inside multiline strings. The formatter preserves layout line endings and
-adds one final newline to nonempty source. Empty source remains empty.
+source and generated results have resource limits: 262,144 UTF-8 bytes, 4,096
+expanded lexer tokens, and 32 combined delimiter/embedded-source levels, plus
+shared recursive budgets. see the [input policy](docs/verification/input-limits.md)
+for the exact rules, and the [reference](docs/formatter.md) for layout and preservation details.
 
-Every returned candidate parses and has the same syntax tree after source
-coordinates are excluded. The output is idempotent: formatting it again
-produces identical bytes. This validates syntax without resolving imports,
-checking types, executing Revo, or expanding procedural macros.
+## development and verification
 
-Formatting procedural macros is allowed. Macros that inspect offsets, lines,
-or columns can observe formatting-induced position changes. The guarantee is
-syntax equivalence modulo those coordinates, so such macros can produce
-different results after formatting.
-
-## Tested upstream corpus
-
-The [vendored corpus provenance](tests/fixtures/upstream/PROVENANCE.md) lists
-20 valid inputs from the same pinned revision: six complete `.rv` examples
-and fourteen self-contained documentation snippets. It also lists one
-malformed upstream documentation fence, which is tested as a syntax rejection.
-The valid fixtures include the demo, pipes, procedural macros, types, control
-flow, match arms, multiline literals and comments.
-
-Each valid input is checked at line widths 24, 80 and 120 with indent widths
-2 and 4, giving 120 input/option combinations. Each combination produces one
-formatter result, checked for reparsing, exact
-interleaved raw token/comment bytes, complete AST equivalence modulo coordinates,
-and idempotence. Four of those same results also check reviewed expected output
-for signature/table reflow, block indentation and match-arm layout. The private
-preservation and corpus tests run once in library test modules; process-level
-CLI checks remain integration tests.
-Negative controls cover malformed sources, whitespace-sensitive calls,
-comment movement and literal respelling. This is a bounded regression corpus;
-it does not establish exhaustive syntax coverage or uniform layout quality.
-
-See the [documentation handoff](docs/verification/2026-10-06-documentation-handoff.md) for
-current verification and review status, and the [earlier architecture report](docs/verification/architecture-deepening.md)
-for stage-specific package checks and measurements.
-
-## Development and verification
-
-Use exact Zig 0.17.0 on `PATH`, or export its absolute executable once:
+use exact zig 0.17.0. from the repository root:
 
 ```sh
 export ZIG=/absolute/path/to/zig-0.17.0/zig
@@ -258,73 +157,21 @@ cargo build --release
 scripts/verify-editors
 ```
 
-The release test suite checks the same admission boundaries as debug. Keep both
-runs when changing recursive paths, grammar-sensitive weights or input limits.
+keep both debug and release tests when changing recursive paths or input limits.
+editor checks need neovim >=0.10, node.js >=20, npm and python >=3.11.
+`REVOFMT_BIN` can select an absolute formatter path; otherwise the script uses
+`target/release/revofmt`. the [vs code guide](editors/vscode/README.md#development-and-verification)
+covers native host checks and packaging, which needs node.js >=22.
 
-Editor checks require Neovim >=0.10, Node.js >=20, npm, and Python >=3.11.
-The script uses `target/release/revofmt` by default; set `REVOFMT_BIN` to an
-absolute executable path to use another build. VS Code's package README
-documents dependency installation and VSIX packaging separately; its pinned
-packaging tool requires Node.js >=22.
+for an offline rust package check with dependencies cached, run
+`cargo package --offline --allow-dirty` with the same `ZIG` setting.
+`cargo audit` is an optional dependency check.
 
-The [documentation handoff](docs/verification/2026-10-06-documentation-handoff.md)
-records the latest editor checks: 32 Neovim, 49 VS Code and 15 Zed tests, plus
-native VS Code host coverage and its limits. The
-[original editor verification record](docs/verification/2026-10-06-editor-integrations.md)
-retains the earlier package checks and reviews.
+before contributing, read [AGENTS.md](AGENTS.md), the [glossary](CONTEXT.md) and
+[architecture](docs/architecture.md). the [documentation index](docs/README.md)
+links current guides and dated verification records.
 
-The latest source check passed 89 Rust tests (72 library, one binary, 16 CLI) in
-both debug and release, and ten filtered Zig tests. The Rust suite includes the
-120-case corpus matrix; these cases are not 120 additional test functions. The
-Zig filters select local bridge, index and admission tests without running
-upstream runtime tests.
-`cargo audit` is an optional additional dependency check when installed.
+## credits
 
-Native VS Code host checks and VSIX packaging are documented in the
-[VS Code guide](editors/vscode/README.md#development-and-verification). For a source
-package check with dependencies already cached, run
-`cargo package --offline --allow-dirty` with the same `ZIG` setting. Editor
-packages and tooling dependencies are excluded from the Rust crate.
-
-For a quick manual test, save this intentionally compact source as `example.rv`:
-
-```revo
-fn twoSum(nums,target) do
-for y in 0..len(nums) do
-for x in y+1..len(nums) do
-if nums[y]+nums[x]==target do
-return {y,x}
-end
-end
-end
-end
-```
-
-```sh
-target/release/revofmt example.rv
-# Reports a formatting difference and exits 1.
-target/release/revofmt --check example.rv
-# Applies the result; the following check exits 0.
-target/release/revofmt --write example.rv
-target/release/revofmt --check example.rv
-# Try narrower output without modifying the file.
-target/release/revofmt --line-width 24 example.rv
-```
-
-At default width, the result is:
-
-```revo
-fn twoSum(nums, target) do
-  for y in 0..len(nums) do
-    for x in y + 1..len(nums) do
-      if nums[y] + nums[x] == target do
-        return {y, x}
-      end
-    end
-  end
-end
-```
-
-For contributions, read [AGENTS.md](AGENTS.md), the [domain glossary](CONTEXT.md)
-and [current architecture](docs/architecture.md). The [documentation index](docs/README.md)
-separates current guides from completed plans and historical research/reviews.
+[MIT](LICENSE). the parser comes from [revo](https://github.com/if-not-nil/revo),
+also MIT; its notice and provenance are in [THIRD_PARTY.md](THIRD_PARTY.md).
