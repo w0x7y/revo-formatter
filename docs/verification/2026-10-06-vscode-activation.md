@@ -61,7 +61,10 @@ manifests (23 vendor and 27 corpus files). The initial Cargo invocation omitted
 `ZIG` and failed its toolchain precondition; rerunning with the documented
 environment passed. Logs are local under `target/editor-verification/`.
 
-Independent review is pending at this recorded stage.
+The [fresh independent review](2026-10-06-vscode-activation-review.md) covered
+`1e31cd51..3d48a57c` and approved the correction with no Critical, Important or
+Minor findings. Final bookkeeping records that result without changing the
+tested runtime or native runner.
 
 ## Coverage limits
 
