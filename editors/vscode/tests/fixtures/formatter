@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+'use strict';
+let source = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { source += chunk; });
+process.stdin.on('end', () => {
+  if (source.startsWith('hang:')) {
+    require('node:fs').writeFileSync(source.slice(5), String(process.pid));
+    setInterval(() => {}, 1000);
+    return;
+  }
+  switch (source) {
+    case 'hang': setInterval(() => {}, 1000); break;
+    case 'overflow': process.stdout.write(Buffer.alloc(262145, 120)); break;
+    case 'stderr-overflow': process.stderr.write(Buffer.alloc(65537, 120)); break;
+    case 'invalid-utf8': process.stdout.write(Buffer.from([0xff])); break;
+    case 'bom': process.stdout.write(Buffer.from([0xef, 0xbb, 0xbf, 120])); break;
+    case 'signal': process.stdout.write('unsafe'); process.kill(process.pid, 'SIGTERM'); break;
+    case 'source-limit': process.stdout.write(Buffer.alloc(262144, 120)); break;
+    case 'stderr-limit': process.stderr.write(Buffer.alloc(65536, 120)); process.stdout.write('ok'); break;
+    case 'fail': process.stdout.write('unsafe'); process.stderr.write('fixture syntax error'); process.exitCode = 2; break;
+    case 'args': process.stdout.write(JSON.stringify(process.argv.slice(2))); break;
+    default: process.stdout.write(source); break;
+  }
+});
