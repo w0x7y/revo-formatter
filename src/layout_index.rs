@@ -64,18 +64,29 @@ impl LayoutIndex {
         let mut stack = Vec::new();
         for i in 0..tokens.len() {
             match text(i) {
-                "(" | "{" | "[" | "do" => stack.push(i),
-                ")" | "}" | "]" | "end" => {
+                "(" | "{" | "[" => stack.push(i),
+                ")" | "}" | "]" => {
                     if let Some(open) = stack.pop()
-                        && matches!(
-                            (text(open), text(i)),
-                            ("(", ")") | ("{", "}") | ("[", "]") | ("do", "end")
-                        )
+                        && matches!((text(open), text(i)), ("(", ")") | ("{", "}") | ("[", "]"))
                     {
                         index.delimiter_closes[open] = Some(i);
                     }
                 }
                 _ => {}
+            }
+        }
+        // Block ownership comes from actual source-backed AST blocks. Keywords
+        // are also valid identifiers, so only punctuation is paired lexically.
+        for region in analysis.regions().iter().filter(|r| r.kind == "block") {
+            let start = tokens.partition_point(|t| t.start < region.start);
+            let end = tokens.partition_point(|t| t.start < region.end);
+            if start < end
+                && tokens[start].start == region.start
+                && tokens[end - 1].end == region.end
+                && text(start) == "do"
+                && text(end - 1) == "end"
+            {
+                index.delimiter_closes[start] = Some(end - 1);
             }
         }
         // Preserve generic-call lookahead, including spaced receivers which
