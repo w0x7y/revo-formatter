@@ -94,7 +94,7 @@ continues to govern subsequent native file writes.
 
 Before applying a result, the plugin checks the request generation, changedtick,
 loaded/modifiable state, and serialization options. Edits, buffer deletion or
-unloading, option changes, superseded requests, timeouts, subprocess errors, and
+unloading, option changes, superseded requests, timeouts, signal termination, subprocess errors, and
 unrepresentable output leave the buffer untouched. Changed lines are applied as
 one minimal contiguous replacement, preserving native undo and displayed views
 where possible; cursor positions are clamped naturally if a line becomes shorter.

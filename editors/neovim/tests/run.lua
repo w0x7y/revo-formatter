@@ -287,5 +287,22 @@ test('admits input before starting a subprocess', function()
   equal(bytes(buf), source)
   assert(table.concat(errors):find('input byte limit', 1, true))
 end)
+for _, async in ipairs({ false, true }) do
+  test('refuses signal-terminated output in ' .. (async and 'async' or 'sync') .. ' mode', function()
+    local fmt = controlled('signal')
+    local buf = buffer({ 'let x=1' })
+    local tick = vim.api.nvim_buf_get_changedtick(buf)
+    local ok = fmt.format({ bufnr = buf, async = async })
+    if async then
+      assert(ok)
+      assert(vim.wait(2000, function() return #errors > 0 end, 10))
+    else
+      assert(not ok, 'a process killed by a signal must fail even when its exit code is zero')
+    end
+    equal(bytes(buf), 'let x=1')
+    equal(vim.api.nvim_buf_get_changedtick(buf), tick)
+    assert(table.concat(errors):find('signal', 1, true))
+  end)
+end
 print(string.format('%d tests, %d failures', tests, failed))
 vim.cmd(failed == 0 and 'qa!' or 'cquit 1')

@@ -26,7 +26,8 @@ function M.start(config, source, on_exit)
       code = raw.code,
       stdout = table.concat(stdout),
       stderr = table.concat(stderr),
-      error = failure or ((timed_out or raw.code == 124) and 'formatter timed out' or nil),
+      error = failure or ((timed_out or raw.code == 124) and 'formatter timed out' or nil)
+        or ((raw.signal or 0) ~= 0 and ('formatter terminated by signal ' .. raw.signal) or nil),
     }
   end
   local ok, spawned = pcall(vim.system, {

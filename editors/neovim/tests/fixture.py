@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Controlled subprocess for lifecycle, byte rejection and resource tests."""
 import os
+import signal
 import sys
 import time
 
@@ -16,6 +17,8 @@ elif mode == "delay":
 elif mode == "stderr":
     sys.stderr.write("controlled syntax failure")
     sys.exit(2)
+elif mode == "signal":
+    os.kill(os.getpid(), signal.SIGTERM)
 elif mode == "oversize":
     sys.stdout.buffer.write(b"x" * 300000)
     sys.exit(0)
