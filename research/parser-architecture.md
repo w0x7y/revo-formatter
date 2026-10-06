@@ -1,5 +1,7 @@
 # Parser architecture research
 
+Historical research/review from 2026-10-05, covering the pinned revisions cited below. The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+
 Research date: 2026-10-05. Design research only; no implementation or checkout changes. The user selected Rust, CLI plus library, and line-width reflow in the first release while this investigation was running.
 
 ## Recommendation

@@ -1,5 +1,7 @@
 # Independent review of the Revo syntax inventory
 
+Historical research/review from 2026-10-05, covering the pinned revisions cited below. The coordinate-policy concern and research corrections were resolved before implementation; see [the re-review](research-rereview.md). The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+
 Reviewed 2026-10-05 against the local primary source at `/tmp/revo-formatter-upstream`, whose `HEAD` is `b571298b6fc95bc863548f118354c8d077792f6f`. The checkout was clean. This was a bounded source review of the named formatting risks. I did not run Zig tests, and no upstream or inventory files were edited.
 
 **Requirement compliance.** The inventory supports a Rust formatter with pinned frontend validation, line-width reflow, and exact literal/comment preservation. It correctly distinguishes a conservative whitespace pass from full reflow, requires original and candidate parse success, structural equivalence, concrete-byte preservation, and idempotence. It also correctly makes width a soft limit when syntax or opaque literals prevent a safe break. The missing toolchain pin below should be addressed before treating the validation behavior as reproducible. The record-field doc path should join the preservation fixtures.
