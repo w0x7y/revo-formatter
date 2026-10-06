@@ -12,6 +12,7 @@
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
 - [Final source verification](verification/2026-10-06-final-check.md): checks and review scope after the latest formatter fixes.
 - [Editor verification](verification/2026-10-06-editor-integrations.md): package checks, independent reviews and editor-host limits.
+- [VS Code activation follow-up](verification/2026-10-06-vscode-activation.md): native-host regression and corrected local package.
 
 ## Completed plans and original designs
 

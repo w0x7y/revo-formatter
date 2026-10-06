@@ -1,5 +1,9 @@
 # Editor integrations verification — 2026-10-06
 
+The later [VS Code activation follow-up](2026-10-06-vscode-activation.md) records
+a native-host defect found after installation and its correction. This report
+retains the checks and limitations of the original reviewed stage.
+
 ## Scope and structure
 
 The implementation starts at `e048b7d5` and adds locally installable packages
