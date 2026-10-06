@@ -25,7 +25,7 @@ guides above for new work.
 | Formatting rules | User examples and reproduced regressions | [Completed plan](superpowers/plans/2026-10-05-formatting-rules.md) |
 | Layout scopes and document fitting | Findings recorded in the plan | [Completed plan](superpowers/plans/2026-10-06-layout-depth.md) |
 | Editor integrations | [Approved design](superpowers/specs/2026-10-06-editor-integrations-design.md) | [Implementation plan](superpowers/plans/2026-10-06-editor-integrations.md) |
-| Architecture follow-up | [Approved design](superpowers/specs/2026-10-06-architecture-followup-design.md) | [Plan awaiting final review](superpowers/plans/2026-10-06-architecture-followup.md) |
+| Architecture follow-up | [Approved design](superpowers/specs/2026-10-06-architecture-followup-design.md) | [Completed plan](superpowers/plans/2026-10-06-architecture-followup.md) |
 
 ## Historical verification
 

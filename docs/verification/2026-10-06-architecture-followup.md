@@ -101,25 +101,25 @@ The rebuilt local v0.1.1 VSIX has SHA-256
 It remains an ignored local artifact. No publication, push, user editor
 configuration change or dependency download occurred.
 
-## Reviews and remaining gate
+## Reviews and completion
 
 | Scope | Actual review result |
 | --- | --- |
 | Task 1, `71745013..0f18e168` | Approved; no findings |
 | Initial Task 2, `0f18e168..15a5690a` | Needs fixes; Important I1 |
 | Task 2 fix1, `15a5690a..ae82b578` | I1 addressed; no new breakage |
-| Task 3 documentation/packaging | Fresh task review pending |
-| Whole follow-up, `aea81c06..HEAD` | Fresh final review pending |
+| Task 3, `ae82b578..a9d40c25` | Approved; no findings |
+| Whole follow-up, `aea81c06..a9d40c25` | Approved; no Critical, Important or Minor findings |
 
-The coordinator will append the actual Task 3 and whole-review verdicts after
-those reviews. The plan's final-review checkbox remains open. This report does
-not claim whole-change approval.
+The fresh final reviewer inspected the complete change and final verification
+evidence, including source provenance, admission placement and launcher cleanup.
+Prior I1 is addressed; no findings remain. The plan is complete. Final production
+source remains `ae82b578`; completion bookkeeping changes documentation only.
 
 Full local command/output evidence is under `target/architecture-review/`.
 Final source logs use `task-2-fix1-` prefixes; final editor/native logs are
 `final-fix1-editors.log` and `final-fix1-native-host.log`. Task 3 packaging and
-document logs use `task-3-` prefixes. The ignored
-`.superpowers/sdd/2026-10-06-architecture-followup/` ledger contains task reports,
-independent review reports and coordinator checks. The results, I1 correction
-and verification limits above are retained here without requiring those local
-scratch files.
+document logs use `task-3-` prefixes. The temporary plan workspace held task
+reports, independent reviews and coordinator checks and was removed after clean
+final review. The results, I1 correction, ruling and verification limits above
+are retained here without requiring those local scratch files.

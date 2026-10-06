@@ -65,4 +65,4 @@ do\n  let end = 1\n  foo()\nend\n
 
 - [x] Explain block lexical-envelope ownership and the launcher lifecycle fix; record scan areas where the deletion test did not justify restructuring.
 - [x] Run full README Rust/Zig/checksum/editor verification, native VS Code checks, Cargo packaging checks and diff/link checks on the completed changes.
-- [ ] Dispatch a fresh final reviewer over `aea81c06..HEAD`, fix substantive findings and re-review fixes. Record actual results and limits, mark this plan complete and commit documentation.
+- [x] Dispatch a fresh final reviewer over `aea81c06..HEAD`, fix substantive findings and re-review fixes. Record actual results and limits, mark this plan complete and commit documentation.
