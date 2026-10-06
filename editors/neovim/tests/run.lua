@@ -198,17 +198,27 @@ end)
 local function inherited_pipes(body)
   local pid_path = vim.fn.tempname()
   vim.env.REVOFMT_TEST_CHILD_PID = pid_path
-  local before = {}
-  vim.uv.walk(function(handle) before[handle] = true end)
+  -- uv.walk can crash on Neovim 0.10's native handles. Observe actual
+  -- transport allocations instead, retaining their normal libuv behavior.
+  local owned, constructors = {}, {}
+  for _, name in ipairs({ 'new_pipe', 'new_timer', 'spawn' }) do
+    local original = vim.uv[name]
+    constructors[name] = original
+    vim.uv[name] = function(...)
+      local handle, extra, detail = original(...)
+      if handle then owned[#owned + 1] = handle end
+      return handle, extra, detail
+    end
+  end
   local function cleaned_up()
-    local clean = true
-    vim.uv.walk(function(handle)
-      if not before[handle] and not handle:is_closing() then clean = false end
-    end)
-    return clean
+    for _, handle in ipairs(owned) do
+      if not handle:is_closing() then return false end
+    end
+    return true
   end
   local fmt = controlled('inherited-pipes', { timeout_ms = 150 })
   local ok, err = pcall(body, fmt, cleaned_up, pid_path)
+  for name, original in pairs(constructors) do vim.uv[name] = original end
   local spawned = vim.fn.filereadable(pid_path) == 1
   if spawned and vim.fn.filereadable(pid_path .. '.done') == 0 then
     vim.uv.kill(tonumber(vim.fn.readfile(pid_path)[1]), 9)
@@ -273,17 +283,18 @@ for _, canceled in ipairs({ false, true }) do
   end)
 end
 test('inherited-pipe timeout still saves the unchanged user source', function()
-  inherited_pipes(function(_, cleaned_up)
+  inherited_pipes(function(_, cleaned_up, pid_path)
     local path = vim.fn.tempname() .. '.rv'
     local buf = buffer({ 'let x=1' })
     vim.api.nvim_buf_set_name(buf, path); vim.bo[buf].filetype = 'revo'
     controlled('inherited-pipes', { timeout_ms = 150, format_on_save = true })
-    local start = vim.uv.hrtime()
     local ok, err = pcall(vim.cmd, 'write!')
     local contents = vim.fn.filereadable(path) == 1 and vim.fn.readfile(path) or nil
     vim.fn.delete(path)
     assert(ok, err)
-    assert((vim.uv.hrtime() - start) / 1e6 < 500, 'save waited for descendant EOF')
+    -- Saving includes disk I/O. Check pipe lifetime directly so a slow disk
+    -- cannot masquerade as waiting for the formatter descendant's EOF.
+    assert(vim.fn.filereadable(pid_path .. '.done') == 0, 'save waited for descendant EOF')
     equal(contents, { 'let x=1' })
     equal(bytes(buf), 'let x=1')
     assert(table.concat(errors):find('timed out', 1, true), table.concat(errors))

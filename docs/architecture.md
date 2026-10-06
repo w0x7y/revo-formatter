@@ -116,6 +116,12 @@ edits. Zed uses declarative language registration and native external-formatter
 settings. `editors/README.md` defines their shared stdin/stdout contract;
 `scripts/verify-editors` invokes each package's checks.
 
+The public [revofmt.nvim repository](https://github.com/w0x7y/revofmt.nvim) ships
+Neovim's adapter at the plugin repository root. It adds an explicit installer
+for pinned, checksum-verified formatter releases and a health check. Binary
+management is owned by that standalone package; the local adapter and regression
+suite here remain independently usable with an installed CLI.
+
 Neovim transport owns its subprocess pipes and deadline timer through public
 `vim.uv` APIs. Completion closes the owned streams, so a wrapper's descendant
 holding stdout or stderr cannot delay a timeout or abort a save. Process exit
