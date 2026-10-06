@@ -111,6 +111,11 @@ subprocesses cover malformed output, process limits and termination. These are
 unit/provider and CLI integration tests; they are not actual extension-host
 tests.
 
+Process regressions also invoke the native host runner with controlled launchers
+in isolated temporary directories. They check signal and nonzero-exit diagnostics,
+waiting after successful wrapper exit, and atomic host-result publication without
+starting VS Code.
+
 An installed desktop VS Code and a working display are required for the separate
 native extension-host regression test. It downloads no tools or dependencies:
 
@@ -130,8 +135,10 @@ does not receive VS Code's implicit activation event. See the
 [VS Code language contribution implementation](https://github.com/microsoft/vscode/blob/07f806f999227108933c2e30515b26eecc1fda74/src/vs/workbench/services/language/common/languageService.ts#L111-L117).
 
 The runner waits up to 60 seconds for a host result, even when the `code` launcher
-returns early. It closes only its isolated host and removes successful temporary
-data. Failures retain logs and results; set `REVOFMT_HOST_KEEP=1` to retain a
+returns early with exit code zero. Signal termination and nonzero launcher exits
+fail promptly with their signal or exit code. It closes only its isolated host and
+removes successful temporary data. Failures retain logs and results; set
+`REVOFMT_HOST_KEEP=1` to retain a
 successful run too. The native test passed on Linux x86_64 GNU with VS Code
 1.140.0. It does not establish host behavior for remote workspaces, Restricted
 Mode, undo, cancellation, stale results, line-ending edge cases or save actions.

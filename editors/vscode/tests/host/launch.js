@@ -52,6 +52,7 @@ async function main() {
     let result;
     while (Date.now() < deadline) {
       if (launchError) throw launchError;
+      if (child.signalCode !== null) throw new Error(`VS Code launcher terminated by signal ${child.signalCode}`);
       if (child.exitCode !== null && child.exitCode !== 0) throw new Error(`VS Code launcher exited with code ${child.exitCode}`);
       try { result = JSON.parse(await fs.readFile(resultPath, 'utf8')); break; }
       catch (error) { if (error.code !== 'ENOENT') throw error; }
