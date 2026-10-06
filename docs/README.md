@@ -6,10 +6,12 @@
 - [Contributor instructions](../AGENTS.md): contracts and change workflow.
 - [Domain glossary](../CONTEXT.md): source and layout vocabulary.
 - [Architecture](architecture.md): implemented flow and module ownership.
+- [Editor integrations](../editors/README.md): package layout, shared CLI contract, installation and checks.
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
 - [Final source verification](verification/2026-10-06-final-check.md): checks and review scope after the latest formatter fixes.
+- [Editor verification](verification/2026-10-06-editor-integrations.md): package checks, independent reviews and editor-host limits.
 
 ## Completed plans and original designs
 
@@ -23,6 +25,7 @@ guides above for new work.
 | Initial architecture deepening | [Original design](superpowers/specs/2026-10-05-architecture-deepening-design.md) | [Completed plan](superpowers/plans/2026-10-05-architecture-deepening.md) |
 | Formatting rules | User examples and reproduced regressions | [Completed plan](superpowers/plans/2026-10-05-formatting-rules.md) |
 | Layout scopes and document fitting | Findings recorded in the plan | [Completed plan](superpowers/plans/2026-10-06-layout-depth.md) |
+| Editor integrations | [Approved design](superpowers/specs/2026-10-06-editor-integrations-design.md) | [Implementation plan](superpowers/plans/2026-10-06-editor-integrations.md) |
 
 ## Historical verification
 

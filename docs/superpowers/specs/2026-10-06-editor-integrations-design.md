@@ -70,9 +70,15 @@ Use a declarative language extension registering Revo and both suffixes.
 Current Zed source supports an optional grammar; omit it because v1 does not
 provide syntax highlighting. Supply mergeable native external-formatter
 settings with `revofmt`, its layout arguments, and save formatting disabled.
+Disable native `remove_trailing_whitespace_on_save` and
+`ensure_final_newline_on_save` for Revo: native whitespace passes run before
+the external command and could change opaque bytes even on CLI failure.
 Zed owns process execution and applying native formatting results. Test metadata,
 settings, and the exact stdin/stdout contract with the real CLI. Document any
-editor-level verification unavailable in this environment honestly.
+editor-level verification unavailable in this environment honestly. Zed's
+native buffer pipeline normalizes line endings; full raw-file preservation is
+limited to LF sources. Document CRLF/mixed-ending limitations instead of
+claiming that command transport checks establish host-level preservation.
 
 ## Verification
 

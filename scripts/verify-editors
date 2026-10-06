@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+formatter=${REVOFMT_BIN:-"$repo_root/target/release/revofmt"}
+
+if [[ ! -x "$formatter" ]]; then
+  printf 'Formatter executable not found: %s\nBuild with cargo build --release or set REVOFMT_BIN to an executable path.\n' "$formatter" >&2
+  exit 1
+fi
+
+for tool in nvim npm python3; do
+  if ! command -v "$tool" >/dev/null; then
+    printf 'Editor verification requires %s; see editors/README.md.\n' "$tool" >&2
+    exit 1
+  fi
+done
+
+export REVOFMT_BIN
+REVOFMT_BIN=$(realpath -- "$formatter")
+cd -- "$repo_root"
+
+printf 'Checking Neovim\n'
+nvim --headless -u NONE -i NONE -n -l editors/neovim/tests/run.lua
+
+printf 'Checking VS Code\n'
+npm --prefix editors/vscode test
+
+printf 'Checking Zed\n'
+python3 editors/zed/tests/run.py

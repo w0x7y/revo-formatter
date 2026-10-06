@@ -70,3 +70,22 @@ resource verification.
 The [final check](verification/2026-10-06-final-check.md) records the latest source
 verification. Earlier [architecture measurements](verification/architecture-deepening.md)
 are stage-specific evidence, not measurements of every later change.
+
+## Editor packages
+
+`editors/` contains independently installable adapters around the public CLI.
+The Rust crate stays at the root and does not depend on any editor package.
+Editor sources and their development dependencies are excluded from the Cargo
+source package.
+
+Each editor directory owns its metadata, source, tests, and installation guide.
+Neovim separates buffer lifecycle from raw process transport and its buffer
+codec. VS Code separates provider wiring from subprocess execution and text
+edits. Zed uses declarative language registration and native external-formatter
+settings. `editors/README.md` defines their shared stdin/stdout contract;
+`scripts/verify-editors` invokes each package's checks.
+
+The CLI owns syntax validation, resource admission, preservation, and
+idempotence. Adapters own transmitting the current buffer and applying a
+successful result without changing opaque bytes or overwriting newer edits.
+No adapter writes files directly or introduces an alternate formatter.

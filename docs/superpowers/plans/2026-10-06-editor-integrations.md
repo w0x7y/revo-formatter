@@ -28,12 +28,12 @@
 
 **Interfaces:** Consumes CLI stdin/stdout. Produces `require('revofmt').setup({ executable, indent_width, line_width, timeout_ms, format_on_save })`, `.format({ bufnr, async })`, and `:RevoFormat`. Neovim >=0.10; defaults timeout 5000 ms, manual async, save disabled.
 
-- [ ] Write focused failing headless tests before implementation. Initial buffer `let x=1` must become `let x = 1\n` on serialization after format. Assert both suffixes select `revo`. Run with `nvim --headless -u NONE -i NONE -n -l editors/neovim/tests/run.lua` using `REVOFMT_BIN` to locate the real CLI.
-- [ ] Implement raw `vim.system` transport and codec. Reconstruct buffers using fileformat and endofline, decode without global CR stripping, and require exact re-encoding equality. Reject binary/unsupported encodings. Short-circuit empty buffers.
-- [ ] Add lifecycle behavior: buffer tick/options/generation guard, loaded/modifiable checks, bounded timeouts, stderr errors, one undoable minimal changed region, and view retention. Test edit during an async operation, overlapping operations, deletion, option changes, missing executable, syntax rejection, fake timeout, unchanged buffers, LF/CRLF/mixed literal endings, and idempotence using actual CLI output.
-- [ ] Add idempotent setup/file recognition/command registration and opt-in bounded synchronous `BufWritePre`. Test repeated setup and disabled/enabled save behavior.
-- [ ] Document local runtimepath/plugin-manager installation, options, command, Linux binary prerequisites, supported buffer formats, and verification. Keep package standalone.
-- [ ] Run the package tests, record results and known editor representation limitations, self-review, and commit only Task 1 files. Report to the assigned report file.
+- [x] Write focused failing headless tests before implementation. Initial buffer `let x=1` must become `let x = 1\n` on serialization after format. Assert both suffixes select `revo`. Run with `nvim --headless -u NONE -i NONE -n -l editors/neovim/tests/run.lua` using `REVOFMT_BIN` to locate the real CLI.
+- [x] Implement raw `vim.system` transport and codec. Reconstruct buffers using fileformat and endofline, decode without global CR stripping, and require exact re-encoding equality. Reject binary/unsupported encodings. Short-circuit empty buffers.
+- [x] Add lifecycle behavior: buffer tick/options/generation guard, loaded/modifiable checks, bounded timeouts, stderr errors, one undoable minimal changed region, and view retention. Test edit during an async operation, overlapping operations, deletion, option changes, missing executable, syntax rejection, fake timeout, unchanged buffers, LF/CRLF/mixed literal endings, and idempotence using actual CLI output.
+- [x] Add idempotent setup/file recognition/command registration and opt-in bounded synchronous `BufWritePre`. Test repeated setup and disabled/enabled save behavior.
+- [x] Document local runtimepath/plugin-manager installation, options, command, Linux binary prerequisites, supported buffer formats, and verification. Keep package standalone.
+- [x] Run the package tests, record results and known editor representation limitations, self-review, and commit only Task 1 files. Report to the assigned report file.
 
 ## Task 2: VS Code extension
 
@@ -41,12 +41,12 @@
 
 **Interfaces:** Consumes CLI stdin/stdout independently of Task 1. Produces a Revo document formatting provider, language registration, and configurable `revofmt.executable`, `revofmt.indentWidth`, `revofmt.lineWidth`, `revofmt.timeoutMs`. Default timeout 5000 ms. Extension id `w0x7y.revofmt`; VS Code >=1.85. Node-based extension with no runtime dependency required.
 
-- [ ] Write failing tests through Node's built-in test runner. A formatting request for `let x=1` must return edits whose application equals `let x = 1\n`; real CLI transport must preserve CRLF bytes in opaque literals. Use `REVOFMT_BIN` for the executable. Test API registration and filename recognition through manifest/provider tests.
-- [ ] Implement direct executable spawning with bounded byte buffers, error handling, cancellation, and timeout. Limits: source/output 262144 bytes, stderr 65536 bytes. Reject invalid UTF-8 output. Never accept output on nonzero exit or after cancellation.
-- [ ] Implement provider wiring and a minimal contiguous replacement with correct UTF-16 positions. Snapshot document version and per-document generation; discard obsolete results. Check editor EOL normalization against exact output, rejecting unrepresentable mixed-ending output rather than changing literal bytes. Test unicode edit boundaries, empty source, unchanged output, syntax errors, settings validation, missing executable, output overflow, timeouts, cancellation, and stale/overlapping requests.
-- [ ] Register `.rv`/`.revo` as `revo`; use trusted-workspace execution only and mark executable settings appropriately. Keep format-on-save opt-in through documented `[revo]` editor settings.
-- [ ] Document local VSIX packaging/installation and development. Package with VSCE or an equivalent supported tool and inspect package runtime files/license. Run extension-host smoke tests if available; distinguish unit/provider tests from actual host tests.
-- [ ] Run package checks, self-review, and commit only Task 2 files. Report test/package evidence and any host-test limitations to the assigned report file.
+- [x] Write failing tests through Node's built-in test runner. A formatting request for `let x=1` must return edits whose application equals `let x = 1\n`; real CLI transport must preserve CRLF bytes in opaque literals. Use `REVOFMT_BIN` for the executable. Test API registration and filename recognition through manifest/provider tests.
+- [x] Implement direct executable spawning with bounded byte buffers, error handling, cancellation, and timeout. Limits: source/output 262144 bytes, stderr 65536 bytes. Reject invalid UTF-8 output. Never accept output on nonzero exit or after cancellation.
+- [x] Implement provider wiring and a minimal contiguous replacement with correct UTF-16 positions. Snapshot document version and per-document generation; discard obsolete results. Check editor EOL normalization against exact output, rejecting unrepresentable mixed-ending output rather than changing literal bytes. Test unicode edit boundaries, empty source, unchanged output, syntax errors, settings validation, missing executable, output overflow, timeouts, cancellation, and stale/overlapping requests.
+- [x] Register `.rv`/`.revo` as `revo`; use trusted-workspace execution only and mark executable settings appropriately. Keep format-on-save opt-in through documented `[revo]` editor settings.
+- [x] Document local VSIX packaging/installation and development. Package with VSCE or an equivalent supported tool and inspect package runtime files/license. Run extension-host smoke tests if available; distinguish unit/provider tests from actual host tests.
+- [x] Run package checks, self-review, and commit only Task 2 files. Report test/package evidence and any host-test limitations to the assigned report file.
 
 ## Task 3: Zed extension
 
@@ -54,17 +54,17 @@
 
 **Interfaces:** Consumes CLI stdin/stdout. Produces language `Revo`, suffixes `rv` and `revo`, and mergeable settings for native external formatting. No Rust/WASM code or grammar is needed for this scope; validate current Zed compatibility from primary sources.
 
-- [ ] Write checks that initially fail because metadata/settings are absent. Parse TOML and JSON, assert both suffixes and language name, assert native external formatter command and exact layout arguments, and assert `format_on_save` is `off`.
-- [ ] Add declarative language metadata and external formatter settings using `revofmt --indent-width 2 --line-width 80 -`. Expose executable/layout customization through documented settings edits.
-- [ ] Exercise the configured command with real CLI input/output and failure cases, including empty source, LF/CRLF/literals, invalid syntax, and idempotence. Zed handles lifecycle/stale result behavior; inspect its native formatter implementation and document actual smoke-test limits without pretending these process tests test a running editor.
-- [ ] Document installing as a dev extension, merging settings with existing Revo support, avoiding duplicate language definitions, and format-on-save opt-in.
-- [ ] Run checks, self-review, and commit only Task 3 files. Report outcomes and constraints to the assigned report file.
+- [x] Write checks that initially fail because metadata/settings are absent. Parse TOML and JSON, assert both suffixes and language name, assert native external formatter command and exact layout arguments, and assert `format_on_save` is `off`, and assert `remove_trailing_whitespace_on_save` and `ensure_final_newline_on_save` are false.
+- [x] Add declarative language metadata and external formatter settings using `revofmt --indent-width 2 --line-width 80 -`. Expose executable/layout customization through documented settings edits. Disable native trailing-whitespace and final-newline passes so the CLI owns whitespace edits even on failure.
+- [x] Exercise the configured command with real CLI input/output and failure cases, including empty source, LF/CRLF/literals, invalid syntax, and idempotence. Zed handles lifecycle/stale result behavior; inspect its native formatter implementation and document actual smoke-test limits without pretending these process tests test a running editor.
+- [x] Document installing as a dev extension, merging settings with existing Revo support, avoiding duplicate language definitions, and format-on-save opt-in.
+- [x] Run checks, self-review, and commit only Task 3 files. Report outcomes and constraints to the assigned report file.
 
 ## Task 4: Repository navigation and final verification
 
 **Files:** Create `editors/README.md`, `scripts/verify-editors`; update root `README.md`, `docs/README.md`, `docs/architecture.md`, `.gitignore`, and Cargo packaging exclusions if needed.
 
-- [ ] Add a concise root directory map and link the editor packages. Document shared CLI/error/EOL contracts once and keep editor-specific installation next to the package.
-- [ ] Add one editor verification command invoking each actual package runner with `REVOFMT_BIN`, and ignore generated dependencies/packages and implementation scratch files.
-- [ ] Run all editor checks and package validation. Run the full README verification: Rust all-target tests/doctests/clippy/fmt/release build, Zig fmt/filtered bridge tests, vendor and corpus checksum manifests from their directories.
+- [x] Add a concise root directory map and link the editor packages. Document shared CLI/error/EOL contracts once and keep editor-specific installation next to the package.
+- [x] Add one editor verification command invoking each actual package runner with `REVOFMT_BIN`, and ignore generated dependencies/packages and implementation scratch files.
+- [x] Run all editor checks and package validation. Run the full README verification: Rust all-target tests/doctests/clippy/fmt/release build, Zig fmt/filtered bridge tests, vendor and corpus checksum manifests from their directories.
 - [ ] Dispatch a fresh whole-branch reviewer over all implementation changes; fix substantive findings and re-review fixes. Record actual verification results and limitations in a dated report, link current guides, and commit the final navigation/documentation work.

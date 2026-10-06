@@ -7,8 +7,26 @@ source coordinates. The supported syntax is that of Revo revision
 
 The initial supported and verified build platform is native
 `x86_64-unknown-linux-gnu`. The build rejects other host/target combinations.
-Other platforms need separate build and ABI validation. Editor integrations
-are planned for later; this version provides the CLI and library.
+Other platforms need separate build and ABI validation.
+
+Locally installable integrations provide formatting and file recognition for
+[Neovim](editors/neovim/README.md), [VS Code](editors/vscode/README.md), and
+[Zed](editors/zed/README.md). They format unsaved buffers through an installed
+`revofmt`; save formatting is opt-in. Start with the
+[editor integration guide](editors/README.md).
+
+## Repository layout
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | Rust library, CLI, layout, and preservation tests |
+| `bridge/` | Zig interface to the pinned frontend |
+| `vendor/revo/` | Unchanged upstream source and checksums |
+| `tests/` | CLI process tests and attributed corpus fixtures |
+| `editors/` | Self-contained Neovim, VS Code, and Zed packages |
+| `scripts/` | Repository verification commands |
+| `docs/` | Current guides, designs, plans, and verification records |
+| `research/` | Dated upstream investigations |
 
 ## Build from source
 
@@ -221,7 +239,17 @@ cargo fmt --check
 cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
+scripts/verify-editors
 ```
+
+Editor checks require Neovim >=0.10, Node.js >=20, npm, and Python >=3.11.
+The script uses `target/release/revofmt` by default; set `REVOFMT_BIN` to an
+absolute executable path to use another build. VS Code's package README
+documents dependency installation and VSIX packaging separately; its pinned
+packaging tool requires Node.js >=22.
+
+The [editor verification record](docs/verification/2026-10-06-editor-integrations.md)
+records package checks, reviews, and native editor testing limits.
 
 The latest source check passed 77 Rust tests (60 library, one binary, 16 CLI) and
 nine filtered Zig tests. The Rust suite includes the 120-case corpus matrix;
