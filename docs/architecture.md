@@ -31,7 +31,7 @@ Source positions can change, including positions observable by procedural macros
 | [src/document.rs](../src/document.rs) | Cached flat widths, groups, fill continuations, enclosures, suffix fitting and rendering |
 | [src/cli.rs](../src/cli.rs) | Bounded input, modes, diagnostics, batch prevalidation and atomic file replacement |
 | [bridge/frontend.zig](../bridge/frontend.zig) | Synchronous C ABI, per-operation arenas and pure frontend calls |
-| [bridge/source.zig](../bridge/source.zig) | Exact raw token envelopes and indexed source-backed layout hints |
+| [bridge/source.zig](../bridge/source.zig) | Exact raw token envelopes, collector-owned block completion and source-backed layout hints |
 | [bridge/compare.zig](../bridge/compare.zig) | Exhaustive structural comparison, ignoring only exact upstream `ast.Span` values |
 | [bridge/input_limits.zig](../bridge/input_limits.zig) | Lexer-only admission with global fragment, nesting and weighted complexity budgets |
 | [build.rs](../build.rs) | Exact toolchain/platform checks and static bridge compilation |
@@ -43,6 +43,27 @@ lexical envelope fits inside the caller's token range. It owns scope priority an
 the header, delimiter/generic, match and arm facts used by all three layout
 traversals. Tokens remain the printing authority; AST source hints may omit
 punctuation or overlap, and are not a complete surface syntax tree.
+
+The source collector owns one token-indexed table of complete block ends. It
+proves an actual block from its AST provenance and source `do` opener, then
+completes descendants child-first in the existing admitted traversal. For a
+nonempty block, it finds the first lexical `end` at or beyond the completed
+descendant extent; an empty block's span already includes its closer. This handles final
+nested blocks and declaration wrappers whose own spans omit their bodies.
+Missing closers fail metadata collection. A final linear pass extends applicable
+block, statement and body hints from that same table, preserving hint order.
+
+Generated wrappers still participate in descendant completion. Independently
+proven source blocks beneath them emit `block` facts, including blocks on either
+side of lowered pipes. Synthetic statement and header hints remain suppressed;
+opaque literal and quasiquote interiors stop traversal. Generated ancestry alone
+cannot hide a real block needed by layout.
+
+Rust consumes the existing `block` hints to seed block pairs and pairs only
+`()`/`[]`/`{}` lexically. Neither owner balances raw `do`/`end` spellings, which
+the pinned parser also accepts as identifiers. The existing metadata interface
+is the seam between semantic block ownership and layout. This gives the
+collector greater depth and keeps block-envelope changes local to one owner.
 
 Header fitting is independent of a following block body. Match subjects and arm
 lists own separate continuations. Arm-body seams come from the actual source
@@ -67,9 +88,11 @@ completion checks. The [admission policy](verification/input-limits.md) is the
 authoritative budget reference; changing recursion or the grammar needs renewed
 resource verification.
 
-The [final check](verification/2026-10-06-final-check.md) records the latest source
-verification. Earlier [architecture measurements](verification/architecture-deepening.md)
-are stage-specific evidence, not measurements of every later change.
+The [architecture follow-up](verification/2026-10-06-architecture-followup.md)
+records current verification and review status. Earlier
+[final-check results](verification/2026-10-06-final-check.md) and
+[architecture measurements](verification/architecture-deepening.md) are
+stage-specific evidence, not measurements of every later change.
 
 ## Editor packages
 
@@ -89,3 +112,19 @@ The CLI owns syntax validation, resource admission, preservation, and
 idempotence. Adapters own transmitting the current buffer and applying a
 successful result without changing opaque bytes or overwriting newer edits.
 No adapter writes files directly or introduces an alternate formatter.
+
+The native VS Code test launcher observes both exit codes and termination
+signals in its existing polling loop. A signal fails promptly with its name;
+a zero wrapper exit still waits for an atomically published successful host
+result. Detached-group cleanup and the host deadline remain in the same owner.
+Controlled process regressions execute the existing launcher script directly;
+the native `npm run test:host` suite exercises recognition,
+automatic activation, unsaved buffers, edit application and idempotence.
+
+The architecture scan retained the other module boundaries after a deletion
+test. Removing `LayoutIndex` or `Doc` would spread containment and fitting rules
+among callers. Removing editor transport, buffer codec or text-edit modules
+would move process lifecycle and byte/position rules into their callers.
+Provider/settings separation, CLI batch prevalidation, the preservation oracle
+and the sequential editor runner had no demonstrated restructuring benefit.
+A shared editor runtime would add dependencies without demonstrated leverage.

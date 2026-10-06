@@ -25,11 +25,11 @@
 
 **Interface:** Existing `npm run test:host`, with `VSCODE_BIN` and `REVOFMT_BIN` overrides. Tests invoke the existing script as a child process, using isolated temporary directories and a controlled launcher.
 
-- [ ] Add a process regression whose launcher terminates itself with SIGTERM. Bound the test well below the old 60-second deadline and assert failure identifies the signal.
-- [ ] Cover nonzero exit and successful early wrapper exit followed by atomic host result publication. Successful wrapper exit alone must never count as a host pass.
-- [ ] Run the focused tests to record the signal case failing before the fix.
-- [ ] Observe `child.signalCode` alongside `child.exitCode` in the existing polling loop, preserving result-file completion and detached-group cleanup.
-- [ ] Run focused tests, package tests and native host verification; commit only this task's files and report exact results. Obtain a fresh independent review.
+- [x] Add a process regression whose launcher terminates itself with SIGTERM. Bound the test well below the old 60-second deadline and assert failure identifies the signal.
+- [x] Cover nonzero exit and successful early wrapper exit followed by atomic host result publication. Successful wrapper exit alone must never count as a host pass.
+- [x] Run the focused tests to record the signal case failing before the fix.
+- [x] Observe `child.signalCode` alongside `child.exitCode` in the existing polling loop, preserving result-file completion and detached-group cleanup.
+- [x] Run focused tests, package tests and native host verification; commit only this task's files and report exact results. Obtain a fresh independent review.
 
 ## Task 2: Source-backed block envelopes
 
@@ -37,7 +37,7 @@
 
 **Interfaces:** Preserve the bridge's current `block` source-region metadata shape and `LayoutIndex::new`/scope interfaces. The source collector supplies complete block lexical envelopes; Rust consumes them for block pairing. Punctuation pairs stay lexical.
 
-- [ ] Add focused public formatter regressions with literal expected output, actual preservation and idempotence. Start with these source/output pairs:
+- [x] Add focused public formatter regressions with literal expected output, actual preservation and idempotence. Start with these source/output pairs:
 
 ```text
 fn f() do\nfoo.end\nbar()\nend
@@ -50,12 +50,12 @@ do\nlet end=1\nfoo()\nend
 do\n  let end = 1\n  foo()\nend\n
 ```
 
-- [ ] Cover comments between a dot and keyword field, keyword names in parameters/declarations/labels, nested final blocks and declaration spans that omit descendants. Use real parser acceptance to select valid fixtures; preserve compact header and parser-sensitive adjacency expectations.
-- [ ] Record focused failures before modifying ownership.
-- [ ] Resolve concrete block envelopes child-first in the existing source collector, preserving generated/opaque exclusion and admission. Reuse one table of complete block envelopes for block, statement and header source hints. Remove raw keyword pairing as semantic authority.
-- [ ] Retain proven source-block facts beneath generated wrappers, including multi-statement and nested blocks in lowered pipe expressions. Synthetic statement/header hints and opaque descendants remain excluded; test both facts and resulting block indentation.
-- [ ] Populate Rust block pairs from emitted `block` hints, retaining lexical punctuation pairing and range-bounded scope behavior. Remove obsolete keyword-pairing logic rather than layering a second path.
-- [ ] Run focused formatting/metadata tests, full formatting/corpus/admission checks and exact Zig tests. Investigate any golden difference rather than blindly regenerating expected output. Commit only this task's files, report results, and obtain a fresh independent review.
+- [x] Cover comments between a dot and keyword field, keyword names in parameters/declarations/labels, nested final blocks and declaration spans that omit descendants. Use real parser acceptance to select valid fixtures; preserve compact header and parser-sensitive adjacency expectations.
+- [x] Record focused failures before modifying ownership.
+- [x] Resolve concrete block envelopes child-first in the existing source collector, preserving generated/opaque exclusion and admission. Reuse one table of complete block envelopes for block, statement and header source hints. Remove raw keyword pairing as semantic authority.
+- [x] Retain proven source-block facts beneath generated wrappers, including multi-statement and nested blocks in lowered pipe expressions. Synthetic statement/header hints and opaque descendants remain excluded; test both facts and resulting block indentation.
+- [x] Populate Rust block pairs from emitted `block` hints, retaining lexical punctuation pairing and range-bounded scope behavior. Remove obsolete keyword-pairing logic rather than layering a second path.
+- [x] Run focused formatting/metadata tests, full formatting/corpus/admission checks and exact Zig tests. Investigate any golden difference rather than blindly regenerating expected output. Commit only this task's files, report results, and obtain a fresh independent review.
 
 ## Task 3: Current guides and final verification
 
@@ -63,6 +63,6 @@ do\n  let end = 1\n  foo()\nend\n
 
 **Interface:** Current contributor guides describe final ownership and real verification evidence. Historical plans/reports retain their recorded stage.
 
-- [ ] Explain block lexical-envelope ownership and the launcher lifecycle fix; record scan areas where the deletion test did not justify restructuring.
-- [ ] Run full README Rust/Zig/checksum/editor verification, native VS Code checks, Cargo packaging checks and diff/link checks on the completed changes.
+- [x] Explain block lexical-envelope ownership and the launcher lifecycle fix; record scan areas where the deletion test did not justify restructuring.
+- [x] Run full README Rust/Zig/checksum/editor verification, native VS Code checks, Cargo packaging checks and diff/link checks on the completed changes.
 - [ ] Dispatch a fresh final reviewer over `aea81c06..HEAD`, fix substantive findings and re-review fixes. Record actual results and limits, mark this plan complete and commit documentation.

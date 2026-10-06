@@ -220,8 +220,8 @@ Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
-See the [final source check](docs/verification/2026-10-06-final-check.md) for
-current verification and the [earlier architecture report](docs/verification/architecture-deepening.md)
+See the [architecture follow-up](docs/verification/2026-10-06-architecture-followup.md) for
+current verification and review status, and the [earlier architecture report](docs/verification/architecture-deepening.md)
 for stage-specific package checks and measurements.
 
 ## Development and verification
@@ -248,10 +248,13 @@ absolute executable path to use another build. VS Code's package README
 documents dependency installation and VSIX packaging separately; its pinned
 packaging tool requires Node.js >=22.
 
-The [editor verification record](docs/verification/2026-10-06-editor-integrations.md)
-records package checks, reviews, and native editor testing limits.
+The [architecture follow-up](docs/verification/2026-10-06-architecture-followup.md)
+records the latest editor checks: 27 Neovim, 49 VS Code and 15 Zed tests, plus
+native VS Code host coverage and its limits. The
+[original editor verification record](docs/verification/2026-10-06-editor-integrations.md)
+retains the earlier package checks and reviews.
 
-The latest source check passed 77 Rust tests (60 library, one binary, 16 CLI) and
+The latest source check passed 88 Rust tests (71 library, one binary, 16 CLI) and
 nine filtered Zig tests. The Rust suite includes the 120-case corpus matrix;
 these cases are not 120 additional test functions. The Zig filters select local
 bridge, index and admission tests without running upstream runtime tests.
