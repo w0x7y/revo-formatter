@@ -2,7 +2,7 @@
   "name": "revofmt",
   "displayName": "Revo Formatter",
   "description": "Format Revo documents through the preservation-checked revofmt CLI.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "w0x7y",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,9 @@
     "Programming Languages"
   ],
   "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:revo"
+  ],
   "extensionKind": [
     "workspace"
   ],
@@ -86,7 +89,8 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "package": "vsce package --no-dependencies --out revofmt-0.1.0.vsix"
+    "test:host": "node tests/host/launch.js",
+    "package": "vsce package --no-dependencies --out revofmt-0.1.1.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "4.0.0"

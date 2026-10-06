@@ -17,7 +17,7 @@ From this directory, with Node.js 22 or later and npm:
 ```sh
 npm ci
 npm run package
-code --install-extension revofmt-0.1.0.vsix
+code --install-extension revofmt-0.1.1.vsix
 ```
 
 You can also use **Extensions: Install from VSIX…** from VS Code's Command
@@ -111,6 +111,31 @@ subprocesses cover malformed output, process limits and termination. These are
 unit/provider and CLI integration tests; they are not actual extension-host
 tests.
 
+An installed desktop VS Code and a working display are required for the separate
+native extension-host regression test. It downloads no tools or dependencies:
+
+```sh
+npm run test:host
+REVOFMT_BIN=/absolute/path/to/revofmt VSCODE_BIN=/absolute/path/to/code npm run test:host
+```
+
+The host runner defaults to `../../target/release/revofmt` and `code` on PATH.
+It opens a separate window with temporary user settings, an empty extensions
+directory and a disposable trusted workspace. It checks `.rv` and `.revo`
+recognition, automatic activation after displaying a Revo document, native
+provider edits, exact output from an unsaved buffer and idempotence. It never
+calls the extension's activation function directly. The extension declares
+`onLanguage:revo` explicitly because its metadata-only language contribution
+does not receive VS Code's implicit activation event. See the
+[VS Code language contribution implementation](https://github.com/microsoft/vscode/blob/07f806f999227108933c2e30515b26eecc1fda74/src/vs/workbench/services/language/common/languageService.ts#L111-L117).
+
+The runner waits up to 60 seconds for a host result, even when the `code` launcher
+returns early. It closes only its isolated host and removes successful temporary
+data. Failures retain logs and results; set `REVOFMT_HOST_KEEP=1` to retain a
+successful run too. The native test passed on Linux x86_64 GNU with VS Code
+1.140.0. It does not establish host behavior for remote workspaces, Restricted
+Mode, undo, cancellation, stale results, line-ending edge cases or save actions.
+
 For a manual extension-host smoke test on a machine with VS Code installed:
 
 ```sh
@@ -122,8 +147,8 @@ both `example.rv` and `example.revo` containing `let x=1`. Confirm their languag
 is Revo, change the unsaved buffer, and run **Format Document**. Check the final
 newline, undo, CRLF multiline literals, syntax errors and opt-in save formatting.
 In an untrusted workspace, formatting must report the trust requirement without
-executing the binary. No extension-host run was available in the implementation
-environment; package tests and VSIX inspection do not establish host behavior.
+executing the binary. These manual checks cover behavior beyond the automated
+host regression; package tests and VSIX inspection alone do not establish it.
 
 API and packaging references: [document formatting providers](https://code.visualstudio.com/api/language-extensions/programmatic-language-features#format-source-code-in-an-editor),
 [workspace trust](https://code.visualstudio.com/api/extension-guides/workspace-trust),
