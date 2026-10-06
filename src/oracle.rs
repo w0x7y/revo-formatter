@@ -9,7 +9,10 @@ pub(crate) struct SourceToken {
 }
 /// Source-backed hints, not a concrete syntax tree. Statements are immediate
 /// children of statement lists (including the module); blocks are concrete AST
-/// blocks; match arms begin at their matcher. Spans can omit surface punctuation.
+/// blocks; match arms begin at their matcher. Match-expression, match-head, and
+/// arm-head hints identify complete matches, first bars, and actual arm arrows.
+/// Header/body and unary-sign hints identify other expression seams. Head hints
+/// end at a lexical start or arrow end; spans can omit surface punctuation.
 /// Tokens, never regions, remain the authority for printing original bytes.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SyntaxRegion {
@@ -516,8 +519,12 @@ mod tests {
                 12,
                 vec![
                     ("statement", 0, 46),
+                    ("match_expression", 0, 46),
+                    ("match_head", 0, 8),
                     ("match_arm", 10, 29),
+                    ("match_arm_head", 10, 27),
                     ("match_arm", 32, 46),
+                    ("match_arm_head", 32, 44),
                 ],
             ),
         ] {
@@ -598,7 +605,7 @@ mod tests {
             );
             let analysis = analyze(&arms).unwrap();
             assert_eq!(analysis.tokens().len(), count * 4 + 2);
-            assert_eq!(analysis.regions().len(), count + 1);
+            assert_eq!(analysis.regions().len(), count * 2 + 3);
             let actual: Vec<_> = analysis
                 .regions()
                 .iter()

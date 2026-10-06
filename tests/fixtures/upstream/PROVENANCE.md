@@ -59,7 +59,7 @@ examples, not exhaustive coverage of all accepted syntax.
 
 One selected source fixture is rejected; no chosen source is excluded because
 of external runtime or type dependencies. Malformed synthetic controls in
-`tests/corpus.rs` are additional tests, not counted as upstream fixtures.
+`src/tests/corpus.rs` are additional tests, not counted as upstream fixtures.
 
 ## Expected outputs
 
@@ -72,23 +72,29 @@ MIT provenance. Suffixes specify line width and indent width.
 | `docs-proc-24-2.rv` | `docs-proc.rv` | width 24, indent 2 | nested table reflow and macro block indentation |
 | `docs-proc-120-4.rv` | `docs-proc.rv` | width 120, indent 4 | compact nested tables and macro block indentation |
 | `docs-match-80-4.rv` | `docs-match.rv` | width 80, indent 4 | match-arm indentation and normalization of aligned spaces |
-| `docs-ambient-24-4.rv` | `docs-ambient.rv` | width 24, indent 4 | multiline typed signature; expression body remains at statement indentation |
+| `docs-ambient-24-4.rv` | `docs-ambient.rv` | width 24, indent 4 | multiline typed signature; expanded expression body receives its own indentation |
 
 ## Verification and limits
 
-`tests/corpus.rs` checks every valid input at widths 24, 80 and 120 with
+`src/tests/corpus.rs` checks every valid input at widths 24, 80 and 120 with
 indent widths 2 and 4: 120 input/option combinations. Separate tests prove
 reparsing with exact interleaved raw token/comment tape, complete AST equality
 modulo source coordinates, and second-pass byte identity. There are four
 expected-output cases and one selected invalid fixture checked at all six
 options. Direct whitespace and moved-comment/string-spelling controls prove
 why both preservation checks are necessary. Production validator controls
-also live in `src/lib.rs`.
+also live in `src/lib.rs` and `src/oracle.rs`. See the
+[current verification commands](../../../README.md#development-and-verification)
+and [final source check](../../../docs/verification/2026-10-06-final-check.md).
+After changing this provenance or a reviewed golden, update `SHA256SUMS` from
+its existing file list and verify it from this directory.
 
-Width is soft. Source statement newlines remain boundaries, expression bodies
-without `do` do not gain an extra indentation level, and pipe chains do not
-receive independent splitting. Continuations can be awkward or exceed width;
-unary signs and labeled `do` spacing receive only basic normalization. A
-validated conservative fallback may retain compact source spacing. Literal
-and comment bytes are never reindented internally. Macro source coordinates
+Width is soft. Source statement newlines remain boundaries; short expression
+newlines can collapse. Expression bodies without `do` receive their own
+indentation when expanded. Operator chains, including pipes, pack available
+columns at one continuation indentation level. Unary minus stays attached to its
+operand. Parser-sensitive label adjacency is retained, and a validated
+conservative fallback may retain compact source spacing. Long unbreakable tokens
+and expressions can exceed the target. Literal and comment bytes are never
+reindented internally. Macro source coordinates
 can change by the accepted position policy. This corpus executes no Revo code.

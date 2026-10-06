@@ -1,6 +1,8 @@
 # Revo formatter implementation plan
 
-> **For agentic workers:** Use subagent-driven-development to implement this plan task by task. Each task requires an independent review for spec compliance and code quality before the next task starts.
+Historical approved design/implementation plan; implementation and its review gates are complete. Original interface sketches and stage-specific instructions below are retained as design history. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+
+> **Historical execution process:** Implementation used task-by-task development with independent spec and quality reviews. This is a completed plan, not a new delegation instruction.
 
 **Goal:** Build a usable Rust Revo formatter library and CLI with indentation, line-width reflow and compiler-backed preservation checks.
 
@@ -86,7 +88,7 @@ pub(crate) fn equivalent(original: &str, candidate: &str) -> Result<bool, Format
 
 Stable Zig 0.17.0 is the exact compiler/stdlib pin. The verified Linux x86_64 archive SHA-256 is `1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026`. A local toolchain is provisioned under `.tools/zig-x86_64-linux-0.17.0/zig`; build scripts discover it only through an explicit `ZIG` value, not by special-casing this path.
 
-- [ ] Write failing oracle tests before implementing the bridge. Establish these behavioral assertions, with actual syntax verified against the pin:
+- [x] Write failing oracle tests before implementing the bridge. Establish these behavioral assertions, with actual syntax verified against the pin:
 
 ```rust
 assert!(analyze("let x = 1 + 2 * 3").is_ok());
@@ -100,12 +102,12 @@ assert!(!equivalent("f(1)", "f (1)").unwrap());
 
 Also test generics, open ranges, labels, parameter optional/default/type fields, public declaration kinds, invalid trailing input and ordinary/doc/module comment raw spans. Empty input is valid. Inspect AST declarations to choose valid examples whose changed field must compare unequal. Test repeated calls and concurrent calls to the Rust wrapper to detect ownership/global-state mistakes.
 
-- [ ] Run the focused tests and record the expected missing-behavior failure. Provision Zig 0.17.0 explicitly if needed and verify its official archive checksum; do not install globally. Copy the minimal unchanged upstream source closure and license from the verified pin. Record provenance and local modifications separately.
-- [ ] Build a static library directly from the bridge, bypassing upstream optional-runtime build steps. C ABI functions return an owned byte buffer containing structured JSON; an explicit free function releases it. Rust copies/deserializes the payload while it is live and releases it on every path. A null/empty error buffer becomes a validation error, never an unsafe slice. Use a fresh arena for each parse/comparison and never execute macros, imports or semantic compilation.
-- [ ] Expose `analyze` with complete raw token envelopes. The upstream doc/module token body spans omit delimiters: recover their opening source byte from saved line/column and closing byte from the lexical delimiter rule, verify bounds and delimiters, and test exact source slices. Omit EOF from the token tape. Include ordinary comments and module docs. Reject parse recovery diagnostics even if a tree was recovered.
-- [ ] Implement structural comparison by reflection or exhaustive traversal. Exclude only values of the exact `ast.Span` type. Compare tagged-union tags, all non-span struct fields, optionals, slices, pointers by contents, float bits and integer/float kind. Do not compare AST debug-print strings. Include `synthetic_block`, doc/attribute/public declaration fields, parameters and generic/implicit-self calls. Repeated source parses must compare equal independently of allocation addresses.
-- [ ] Make `build.rs` invoke `ZIG` or PATH `zig`, validate the pinned compatible version, pass Cargo host/target information explicitly and reject unsupported targets actionably. Link the generated archive; declare input rerun paths without including target output. Document supported local source-build invocation and the no-runtime-dependency result in `THIRD_PARTY.md`.
-- [ ] Run `cargo test`, `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` with the provisioned toolchain. Inspect vendor checksums against upstream and commit the task. Write the detailed report with red/green evidence, exact checks, build boundary and concerns. Do not start Task 2 before independent review approves this interface.
+- [x] Run the focused tests and record the expected missing-behavior failure. Provision Zig 0.17.0 explicitly if needed and verify its official archive checksum; do not install globally. Copy the minimal unchanged upstream source closure and license from the verified pin. Record provenance and local modifications separately.
+- [x] Build a static library directly from the bridge, bypassing upstream optional-runtime build steps. C ABI functions return an owned byte buffer containing structured JSON; an explicit free function releases it. Rust copies/deserializes the payload while it is live and releases it on every path. A null/empty error buffer becomes a validation error, never an unsafe slice. Use a fresh arena for each parse/comparison and never execute macros, imports or semantic compilation.
+- [x] Expose `analyze` with complete raw token envelopes. The upstream doc/module token body spans omit delimiters: recover their opening source byte from saved line/column and closing byte from the lexical delimiter rule, verify bounds and delimiters, and test exact source slices. Omit EOF from the token tape. Include ordinary comments and module docs. Reject parse recovery diagnostics even if a tree was recovered.
+- [x] Implement structural comparison by reflection or exhaustive traversal. Exclude only values of the exact `ast.Span` type. Compare tagged-union tags, all non-span struct fields, optionals, slices, pointers by contents, float bits and integer/float kind. Do not compare AST debug-print strings. Include `synthetic_block`, doc/attribute/public declaration fields, parameters and generic/implicit-self calls. Repeated source parses must compare equal independently of allocation addresses.
+- [x] Make `build.rs` invoke `ZIG` or PATH `zig`, validate the pinned compatible version, pass Cargo host/target information explicitly and reject unsupported targets actionably. Link the generated archive; declare input rerun paths without including target output. Document supported local source-build invocation and the no-runtime-dependency result in `THIRD_PARTY.md`.
+- [x] Run `cargo test`, `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` with the provisioned toolchain. Inspect vendor checksums against upstream and commit the task. Write the detailed report with red/green evidence, exact checks, build boundary and concerns. Do not start Task 2 before independent review approves this interface.
 
 ### Task 2: Implement the width-aware Rust formatter library
 
@@ -129,7 +131,7 @@ impl Default for FormatOptions {
 pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError>;
 ```
 
-- [ ] Start with expected-output tests for assignment spacing, `do`/`end` indentation and width-driven call/table wrapping. The examples below are the minimal acceptance targets; add targeted syntax hazards from the research notes.
+- [x] Start with expected-output tests for assignment spacing, `do`/`end` indentation and width-driven call/table wrapping. The examples below are the minimal acceptance targets; add targeted syntax hazards from the research notes.
 
 ```rust
 let defaults = FormatOptions::default();
@@ -144,14 +146,14 @@ assert_eq!(format(&output, &narrow).unwrap(), output);
 
 Test a wider setting keeps that call inline; four-space indentation changes nested indentation. Test multi-line tables with commas, binary expressions, match arms without an invented `end`, function/method/generic signatures, type annotations with a lexical colon gap, pipes and short anonymous bodies. Include `f (1)`, `f<T>(x)`, `f <T>(x)`, `for i in 0.. do ... end`, suffix `?`/`!`, and comment-adjacent calls.
 
-- [ ] Record a focused red run. Implement a document algebra with text, soft break, hard break, indent, concatenation and group nodes. Render groups flat only when they fit the remaining display columns; use consistent chosen line endings. Keep literal/comment slices borrowed from the original source during layout.
-- [ ] Construct groups from source tokens, matched punctuation and source-backed regions. Original statement boundaries and line-comment terminators are hard breaks. Indent source `do`/`end` blocks and match-arm bodies. Soft breaks belong at list commas and verified expression continuations. Preserve existing non-semantic blank-line boundaries up to one empty line. Keep an empty source empty and terminate other successful outputs with one final layout newline without modifying an opaque token.
-- [ ] Normalize ordinary operator/assignment/comma spacing while preserving lexical distinctions and semantic hugging before call parentheses, generic delimiters, labels and range endpoints. Token source text determines spacing classifications; complete source ranges protect comments and literals. Validate options before calling the bridge and return `InvalidOptions` outside specified bounds.
-- [ ] Validate each candidate by reparsing, exact ordered `(kind, raw_source_bytes)` token tape comparison and complete structural equivalence. If preferred reflow changes syntax, use a documented conservative mode preserving original line-boundary and semantic adjacency decisions and verify it too. If even conservative mode cannot pass, return `Validation` with no candidate. Do not silently emit unsafe text. Ensure reflow decisions and fallback are idempotent, including a second-pass stability check or deterministic algorithm evidence in tests.
-- [ ] Add exact-byte tests for line/block/doc/module comments, multiline literal closing indentation, escapes, interpolation, backticks, Unicode inside strings/comments, CRLF source and whitespace-only input. Preserve original newlines inside opaque tokens even when layout endings differ. Test malformed input and diagnostics, extreme valid option values, and invalid 0/9 indentation and 19/241 width values.
+- [x] Record a focused red run. Implement a document algebra with text, soft break, hard break, indent, concatenation and group nodes. Render groups flat only when they fit the remaining display columns; use consistent chosen line endings. Keep literal/comment slices borrowed from the original source during layout.
+- [x] Construct groups from source tokens, matched punctuation and source-backed regions. Original statement boundaries and line-comment terminators are hard breaks. Indent source `do`/`end` blocks and match-arm bodies. Soft breaks belong at list commas and verified expression continuations. Preserve existing non-semantic blank-line boundaries up to one empty line. Keep an empty source empty and terminate other successful outputs with one final layout newline without modifying an opaque token.
+- [x] Normalize ordinary operator/assignment/comma spacing while preserving lexical distinctions and semantic hugging before call parentheses, generic delimiters, labels and range endpoints. Token source text determines spacing classifications; complete source ranges protect comments and literals. Validate options before calling the bridge and return `InvalidOptions` outside specified bounds.
+- [x] Validate each candidate by reparsing, exact ordered `(kind, raw_source_bytes)` token tape comparison and complete structural equivalence. If preferred reflow changes syntax, use a documented conservative mode preserving original line-boundary and semantic adjacency decisions and verify it too. If even conservative mode cannot pass, return `Validation` with no candidate. Do not silently emit unsafe text. Ensure reflow decisions and fallback are idempotent, including a second-pass stability check or deterministic algorithm evidence in tests.
+- [x] Add exact-byte tests for line/block/doc/module comments, multiline literal closing indentation, escapes, interpolation, backticks, Unicode inside strings/comments, CRLF source and whitespace-only input. Preserve original newlines inside opaque tokens even when layout endings differ. Test malformed input and diagnostics, extreme valid option values, and invalid 0/9 indentation and 19/241 width values.
 
 The raw CR of a CRLF line comment is part of its token. The renderer must append only LF after it, not CRLF, to avoid duplicated CR while keeping the interleaved token/comment tape unchanged. Add record-field doc comments and macro-coordinate behavior to the documented regression cases. Syntax equivalence ignores positions by the user's accepted policy; never claim full behavioral invariance for macros inspecting offsets.
-- [ ] Run focused red/green cycles while iterating, then the complete suite and Rust lint/style checks once. Commit and report. Every output fixture must include idempotence and oracle-equivalence evidence, not just visual snapshots. Obtain independent task review before CLI work.
+- [x] Run focused red/green cycles while iterating, then the complete suite and Rust lint/style checks once. Commit and report. Every output fixture must include idempotence and oracle-equivalence evidence, not just visual snapshots. Obtain independent task review before CLI work.
 
 ### Task 3: Add the CLI, atomic file handling and usage docs
 
@@ -159,7 +161,7 @@ The raw CR of a CRLF line comment is part of its token. The renderer must append
 
 **Interfaces:** Consumes `format`, `FormatOptions`, `FormatError`, `UPSTREAM_REVISION`. Produces binary `revofmt`. CLI exit codes are 0 success, 1 check differences, 2 usage/I/O/syntax/validation errors. stdout contains only formatted source in print mode. Diagnostic filenames and messages go to stderr.
 
-- [ ] Write failing integration tests invoking `env!("CARGO_BIN_EXE_revofmt")` with `std::process::Command` and isolated temporary files. Use actual library behavior, not a stub. A malformed input must fail without stdout and preserve files. Initial assertions include:
+- [x] Write failing integration tests invoking `env!("CARGO_BIN_EXE_revofmt")` with `std::process::Command` and isolated temporary files. Use actual library behavior, not a stub. A malformed input must fail without stdout and preserve files. Initial assertions include:
 
 ```rust
 // Invoke stdin formatting with "let x=1".
@@ -175,11 +177,11 @@ assert_eq!(std::fs::read(&path).unwrap(), b"let x = 1\n");
 
 Construct complete test helpers in the test file: unique process/counter temp directory, Drop cleanup, spawn piped stdin/stdout/stderr, and reject errors instead of silently ignoring them. Test help/version and both option overrides. Test `--check --write`, missing option values, out-of-range options, unrecognized flags, stdin/write misuse and multiple print inputs.
 
-- [ ] Record the red run, then implement argument handling for stdin/`-`, one print file, multiple check/write files, `--indent-width`, `--line-width`, `--help`, `--version`, and `--` before literal file paths. Keep option defaults in `FormatOptions`.
-- [ ] Precompute and validate all multi-file write outputs before mutating files. Reject symlinks and nonregular files in write mode. Write a same-directory temporary file with create-new semantics, preserve the original permissions, flush it and atomically replace the destination. Clean temporary files on errors. Unchanged files should not be rewritten. Report completed paths if a later replacement fails. Do not claim multi-file I/O is fully transactional.
-- [ ] Test that one malformed file in a multi-file write prevents all writes; test missing paths, symlinks, original permissions, and that successful `--write` does not print source. Test `--check` prints changed paths to stderr without source and returns 2 rather than 1 when any input fails.
-- [ ] Write README commands for source build with Zig 0.17.0/PATH or `ZIG`, CLI usage and Rust library usage. Explain pinned syntax, soft width, opaque literal/comment contents, compile-time-only Zig dependency, initial verified platform and extension of editor integrations later. Include actual commands and a before/after example from tests. No claims of publication or other platform validation.
-- [ ] Run CLI tests, the complete suite and style/lint checks. Build `cargo build --release` and manually smoke-test stdin, file print/check/write and width override with the release binary. Commit and report actual outcomes. Obtain independent task review.
+- [x] Record the red run, then implement argument handling for stdin/`-`, one print file, multiple check/write files, `--indent-width`, `--line-width`, `--help`, `--version`, and `--` before literal file paths. Keep option defaults in `FormatOptions`.
+- [x] Precompute and validate all multi-file write outputs before mutating files. Reject symlinks and nonregular files in write mode. Write a same-directory temporary file with create-new semantics, preserve the original permissions, flush it and atomically replace the destination. Clean temporary files on errors. Unchanged files should not be rewritten. Report completed paths if a later replacement fails. Do not claim multi-file I/O is fully transactional.
+- [x] Test that one malformed file in a multi-file write prevents all writes; test missing paths, symlinks, original permissions, and that successful `--write` does not print source. Test `--check` prints changed paths to stderr without source and returns 2 rather than 1 when any input fails.
+- [x] Write README commands for source build with Zig 0.17.0/PATH or `ZIG`, CLI usage and Rust library usage. Explain pinned syntax, soft width, opaque literal/comment contents, compile-time-only Zig dependency, initial verified platform and extension of editor integrations later. Include actual commands and a before/after example from tests. No claims of publication or other platform validation.
+- [x] Run CLI tests, the complete suite and style/lint checks. Build `cargo build --release` and manually smoke-test stdin, file print/check/write and width override with the release binary. Commit and report actual outcomes. Obtain independent task review.
 
 ### Task 4: Add pinned corpus verification and harden regressions
 
@@ -187,8 +189,8 @@ Construct complete test helpers in the test file: unique process/counter temp di
 
 **Interfaces:** Consumes the reviewed public formatter and options. Existing formatter/CLI contracts remain binding. This task adds broad evidence and fixes demonstrated defects, not new options or editor features.
 
-- [ ] Vendor a representative, bounded corpus of upstream `.rv` examples plus extracted self-contained docs snippets from the exact pin, retaining their MIT provenance. Enumerate all chosen fixtures and their parse results. Keep invalid or context-dependent examples in a documented rejection list, not silent test skips. Include demo, pipes, proc, match/control/type syntax and multiline literals where parseable.
-- [ ] Write a corpus test covering every valid fixture at widths 24, 80 and 120 and indent widths 2 and 4. Assertions use real formatting output, reparsing, exact token tape preservation, complete AST comparison and idempotence. Crate-private oracle assertions may need to live as unit tests with fixture includes; keep public integration coverage in `tests/corpus.rs`. Name each fixture and option combination in failure messages.
+- [x] Vendor a representative, bounded corpus of upstream `.rv` examples plus extracted self-contained docs snippets from the exact pin, retaining their MIT provenance. Enumerate all chosen fixtures and their parse results. Keep invalid or context-dependent examples in a documented rejection list, not silent test skips. Include demo, pipes, proc, match/control/type syntax and multiline literals where parseable.
+- [x] Write a corpus test covering every valid fixture at widths 24, 80 and 120 and indent widths 2 and 4. Assertions use real formatting output, reparsing, exact token tape preservation, complete AST comparison and idempotence. Crate-private oracle assertions may need to live as unit tests with fixture includes; keep public integration coverage in `tests/corpus.rs`. Name each fixture and option combination in failure messages.
 
 ```rust
 for width in [24, 80, 120] {
@@ -201,9 +203,9 @@ for width in [24, 80, 120] {
 }
 ```
 
-- [ ] When a fixture exposes a failure, reduce it to a focused failing test before changing implementation. Record the red output and make the smallest root-cause fix; re-run the covering test before broadening. Include malformed source and known whitespace traps as negative controls proving the validator detects unsafe edits.
-- [ ] Add enough expected-output fixtures to demonstrate real reflow and indentation on the corpus; safety-only unchanged output cannot be presented as broad formatting quality. Identify any safe fallback limitations accurately in README.
-- [ ] Run the full suite, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, release build and release CLI smoke tests. Use `cargo package --list` to verify vendored build inputs are included without `.tools`, scratch reports or temporary checkout paths. Do not publish. Commit, self-review and report exact corpus counts and limitations. Obtain independent task review followed by one final whole-project review.
+- [x] When a fixture exposes a failure, reduce it to a focused failing test before changing implementation. Record the red output and make the smallest root-cause fix; re-run the covering test before broadening. Include malformed source and known whitespace traps as negative controls proving the validator detects unsafe edits.
+- [x] Add enough expected-output fixtures to demonstrate real reflow and indentation on the corpus; safety-only unchanged output cannot be presented as broad formatting quality. Identify any safe fallback limitations accurately in README.
+- [x] Run the full suite, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, release build and release CLI smoke tests. Use `cargo package --list` to verify vendored build inputs are included without `.tools`, scratch reports or temporary checkout paths. Do not publish. Commit, self-review and report exact corpus counts and limitations. Obtain independent task review followed by one final whole-project review.
 
 ## Review and completion
 

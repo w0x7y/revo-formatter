@@ -8,6 +8,282 @@ fn check(source: &str, expected: &str, options: FormatOptions) {
 }
 
 #[test]
+fn compact_control_flow_headers_and_return_values() {
+    let expected = "fn twoSum(nums, target) do\n  for y in 0..len(nums) do\n    for x in y + 1..len(nums) do\n      if nums[y] + nums[x] == target do\n        return {y, x}\n      end\n    end\n  end\nend\n";
+    check(expected, expected, FormatOptions::default());
+    check(
+        "fn twoSum(nums, target) do\nfor y in 0..len(nums) do\nfor x in y +\n1..len(nums) do\nif nums [y] +\nnums [x] ==\ntarget do\nreturn {\ny,\nx\n}\nend\nend\nend\nend",
+        expected,
+        FormatOptions::default(),
+    );
+    for keyword in ["if", "unless", "while"] {
+        let expected = format!("{keyword} x + 1 < 10 do\n  f()\nend\n");
+        check(&expected, &expected, FormatOptions::default());
+    }
+}
+
+#[test]
+fn generic_lists_are_local_to_their_statement() {
+    check(
+        "f<T,U>(x)\nlet y=1",
+        "f<T, U>(x)\nlet y = 1\n",
+        FormatOptions::default(),
+    );
+    check(
+        "f< T , U >(x)\nf<T,U>(x)",
+        "f<T, U>(x)\nf<T, U>(x)\n",
+        FormatOptions::default(),
+    );
+    check(
+        "f<FirstType,SecondType>(x)",
+        "f<\n  FirstType,\n  SecondType\n>(x)\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn short_generic_lists_do_not_expand_when_call_arguments_wrap() {
+    for (source, expected) in [
+        (
+            "f<T>(first_argument,second_argument)",
+            "f<T>(\n  first_argument,\n  second_argument\n)\n",
+        ),
+        (
+            "f<T,U>(first_argument,second_argument)",
+            "f<T, U>(\n  first_argument,\n  second_argument\n)\n",
+        ),
+        (
+            "fn f<T>(first_argument,second_argument) first_argument",
+            "fn f<T>(\n  first_argument,\n  second_argument\n)\n  first_argument\n",
+        ),
+    ] {
+        check(
+            source,
+            expected,
+            FormatOptions {
+                line_width: 24,
+                ..FormatOptions::default()
+            },
+        );
+    }
+    check("f<T>()", "f<T>()\n", FormatOptions::default());
+    check(
+        "receiver_methods<T>()",
+        "receiver_methods<\n  T\n>()\n",
+        FormatOptions {
+            line_width: 20,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn unary_signs_and_indexing_stay_attached() {
+    check(
+        "let x=-1\nlet y=-value\nlet z=a*-b\nlet n=nums [y] [x]",
+        "let x = -1\nlet y = -value\nlet z = a * -b\nlet n = nums[y][x]\n",
+        FormatOptions::default(),
+    );
+    check("let x=a- -b", "let x = a - -b\n", FormatOptions::default());
+}
+
+#[test]
+fn operator_continuations_pack_available_columns() {
+    let narrow = FormatOptions {
+        line_width: 24,
+        ..FormatOptions::default()
+    };
+    check(
+        "let x=value+value+value+value+value+value+value+value",
+        "let x = value + value +\n  value + value +\n  value + value +\n  value + value\n",
+        narrow,
+    );
+    for operator in [
+        "<", ">", "==", "!=", "<=", ">=", "%", "^", "and", "or", "orelse", "|>",
+    ] {
+        let source = format!("let x=first_argument {operator} second_argument");
+        let expected = format!("let x = first_argument {operator}\n  second_argument\n");
+        check(&source, &expected, narrow);
+    }
+    check(
+        "let x=first_value |> second_function |> third_function",
+        "let x = first_value |>\n  second_function |>\n  third_function\n",
+        narrow,
+    );
+}
+
+#[test]
+fn short_expression_newlines_can_compact() {
+    for (source, expected) in [
+        ("let x=1+\n2", "let x = 1 + 2\n"),
+        ("return {\ny,\nx\n}", "return {y, x}\n"),
+        ("f(\n1,\n2\n)", "f(1, 2)\n"),
+        ("let x=(\n1+2\n)", "let x = (1 + 2)\n"),
+    ] {
+        check(source, expected, FormatOptions::default());
+    }
+}
+
+#[test]
+fn expression_function_bodies_are_visually_nested() {
+    check("fn f(x)\nx+1", "fn f(x) x + 1\n", FormatOptions::default());
+    check(
+        "fn f(x)\nfirst_argument+second_argument",
+        "fn f(x)\n  first_argument +\n    second_argument\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+    check(
+        "fn f(x) # body\nx+1",
+        "fn f(x) # body\n  x + 1\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn operator_comments_remain_on_their_original_line() {
+    check(
+        "let x=1+ # note\n2",
+        "let x = 1 + # note\n  2\n",
+        FormatOptions::default(),
+    );
+    check(
+        "let x=first_argument+ # note\nsecond_argument",
+        "let x = first_argument + # note\n  second_argument\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn comparison_chains_are_not_generic_lists() {
+    check(
+        "let x=a < b > c",
+        "let x = a < b > c\n",
+        FormatOptions::default(),
+    );
+    check(
+        "let x=first_argument < second_argument > third_argument",
+        "let x = first_argument <\n  second_argument >\n  third_argument\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn multi_parameter_loop_headers_fit_independently_of_their_body() {
+    check(
+        "fn f() do\nfor x,y in items do\nf(x,y)\nend\nend",
+        "fn f() do\n  for x, y in items do\n    f(x, y)\n  end\nend\n",
+        FormatOptions::default(),
+    );
+    check(
+        "for x,y in f(first_argument,second_argument) do\nf(x,y)\nend",
+        "for x, y in f(\n  first_argument,\n  second_argument\n) do\n  f(x, y)\nend\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn header_width_includes_the_do_keyword() {
+    check(
+        "if first_argument + 22 do\nf()\nend",
+        "if first_argument +\n  22 do\n  f()\nend\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn list_comments_remain_attached_to_the_preceding_item() {
+    check(
+        "return {\ny, # note\nx\n}",
+        "return {\n  y, # note\n  x\n}\n",
+        FormatOptions::default(),
+    );
+}
+
+#[test]
+fn nested_match_guard_uses_the_outer_arms_body_seam() {
+    check(
+        "match x\n| _ when (match y | _ => true) =>\nf(first_argument,second_argument)",
+        "match x\n  | _ when (\n    match y | _ => true\n  ) =>\n    f(\n      first_argument,\n      second_argument\n    )\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn block_header_scopes_leave_post_block_operators_in_the_token_tape() {
+    for head in ["if x", "unless x", "while x", "fn f()"] {
+        check(
+            &format!("{head} do\n1\nend+1"),
+            &format!("{head} do\n  1\nend + 1\n"),
+            FormatOptions::default(),
+        );
+    }
+    check(
+        "let x=if x do\nfirst_argument+second_argument\nend+1",
+        "let x = if x do\n  first_argument +\n    second_argument\nend + 1\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
+fn match_subject_continuations_do_not_indent_the_arm_list() {
+    for (source, expected) in [
+        (
+            "match first_argument+second_argument\n| _ => third_argument+fourth_argument",
+            "match first_argument +\n  second_argument\n  | _ => third_argument +\n    fourth_argument\n",
+        ),
+        (
+            "let x=first_argument+match first_argument+second_argument\n| _ => third_argument+fourth_argument",
+            "let x = first_argument +\n  match first_argument +\n    second_argument\n    | _ => third_argument +\n      fourth_argument\n",
+        ),
+    ] {
+        check(
+            source,
+            expected,
+            FormatOptions {
+                line_width: 24,
+                ..FormatOptions::default()
+            },
+        );
+    }
+}
+
+#[test]
+fn match_arms_own_continuations_inside_an_operator_operand() {
+    check(
+        "let x=first_argument+match y\n| _ => second_argument+third_argument\n| 1 => fourth_argument+fifth_argument",
+        "let x = first_argument +\n  match y\n    | _ => second_argument +\n      third_argument\n    | 1 => fourth_argument +\n      fifth_argument\n",
+        FormatOptions {
+            line_width: 24,
+            ..FormatOptions::default()
+        },
+    );
+}
+
+#[test]
 fn assignment_and_blocks() {
     check(
         "let x=1+2*3",
@@ -285,13 +561,13 @@ fn match_arm_delimiter_envelopes_compose_indentation() {
         ),
         (
             "match x\n| _ => {\nx=1,\ny=2\n}",
-            "match x\n  | _ => {\n    x = 1,\n    y = 2\n  }\n",
-            "match x\n    | _ => {\n        x = 1,\n        y = 2\n    }\n",
+            "match x\n  | _ => {x = 1, y = 2}\n",
+            "match x\n    | _ => {x = 1, y = 2}\n",
         ),
         (
             "match x\n| 1 => do\nf()\nend\n| _ => {\nx=1\n}",
-            "match x\n  | 1 => do\n    f()\n  end\n  | _ => {\n    x = 1\n  }\n",
-            "match x\n    | 1 => do\n        f()\n    end\n    | _ => {\n        x = 1\n    }\n",
+            "match x\n  | 1 => do\n    f()\n  end\n  | _ => {x = 1}\n",
+            "match x\n    | 1 => do\n        f()\n    end\n    | _ => {x = 1}\n",
         ),
         (
             "do\nmatch x\n| _ => do\nf()\nend\nend",
@@ -366,45 +642,56 @@ fn call_arm_delimiters_compose_with_reflow() {
 
 #[test]
 fn statement_rhs_envelopes_compose_indentation() {
-    for (source, expected) in [
+    for (source, narrow, wide) in [
         (
             "let x=first_argument+do\nf()\nend\nlet y=2",
+            "let x = first_argument +\n  do\n    f()\n  end\nlet y = 2\n",
             "let x = first_argument +\n  do\n    f()\n  end\nlet y = 2\n",
         ),
         (
             "let x=first_argument+do\ndo\nf()\nend\nend\nlet y=2",
             "let x = first_argument +\n  do\n    do\n      f()\n    end\n  end\nlet y = 2\n",
+            "let x = first_argument +\n  do\n    do\n      f()\n    end\n  end\nlet y = 2\n",
         ),
         (
             "let x=first_argument+{\na=1,\nb=2\n}\nlet y=2",
-            "let x = first_argument +\n  {\n    a = 1,\n    b = 2\n  }\nlet y = 2\n",
+            "let x = first_argument +\n  {a = 1, b = 2}\nlet y = 2\n",
+            "let x = first_argument + {a = 1, b = 2}\nlet y = 2\n",
         ),
         (
             "let x=first_argument+(\nsecond_argument\n)\nlet y=2",
-            "let x = first_argument +\n  (\n    second_argument\n  )\nlet y = 2\n",
+            "let x = first_argument +\n  (second_argument)\nlet y = 2\n",
+            "let x = first_argument + (second_argument)\nlet y = 2\n",
         ),
         (
             "do\nlet x=first_argument+(\nsecond_argument\n) # rhs\nlet y=2\nend\nlet z=3",
-            "do\n  let x = first_argument +\n    (\n      second_argument\n    ) # rhs\n  let y = 2\nend\nlet z = 3\n",
+            "do\n  let x = first_argument +\n    (second_argument) # rhs\n  let y = 2\nend\nlet z = 3\n",
+            "do\n  let x = first_argument + (second_argument) # rhs\n  let y = 2\nend\nlet z = 3\n",
         ),
         (
             "do\nmatch x\n| 1 => first_argument+do\nf()\nend\n| _ => second_argument+(\ng()\n)\nend\nlet y=2",
-            "do\n  match x\n    | 1 => first_argument +\n      do\n        f()\n      end\n    | _ => second_argument +\n      (\n        g()\n      )\nend\nlet y = 2\n",
+            "do\n  match x\n    | 1 => first_argument +\n      do\n        f()\n      end\n    | _ => second_argument +\n      (g())\nend\nlet y = 2\n",
+            "do\n  match x\n    | 1 => first_argument +\n      do\n        f()\n      end\n    | _ => second_argument + (g())\nend\nlet y = 2\n",
         ),
     ] {
         for indent_width in [2, 4] {
-            let expected = expected
-                .lines()
-                .map(|line| {
-                    let spaces = line.len() - line.trim_start().len();
-                    format!(
-                        "{}{}\n",
-                        " ".repeat(spaces / 2 * indent_width),
-                        line.trim_start()
-                    )
-                })
-                .collect::<String>();
-            for line_width in [24, 80] {
+            // Keep the compact parenthesized operand's available columns the
+            // same when increasing the block and continuation indentation.
+            for (line_width, expected) in [
+                (if indent_width == 2 { 24 } else { 32 }, narrow),
+                (80, wide),
+            ] {
+                let expected = expected
+                    .lines()
+                    .map(|line| {
+                        let spaces = line.len() - line.trim_start().len();
+                        format!(
+                            "{}{}\n",
+                            " ".repeat(spaces / 2 * indent_width),
+                            line.trim_start()
+                        )
+                    })
+                    .collect::<String>();
                 check(
                     source,
                     &expected,
@@ -441,7 +728,7 @@ fn flat_binary_chain_shares_continuation_indent() {
     );
     assert_eq!(
         output,
-        "let x = value +\n  value +\n  value +\n  value +\n  value +\n  value + value + value\n"
+        "let x = value + value +\n  value + value +\n  value + value +\n  value + value\n"
     );
     assert_preserved_and_idempotent(&source, &output, &options);
 }
@@ -495,7 +782,7 @@ fn binary_segments_compose_with_nested_scopes_and_hard_breaks() {
         ),
         (
             "let x=first_argument+ # note\nsecond_argument+\nthird_argument+fourth_argument\nlet y=2",
-            "let x = first_argument +\n  # note\n  second_argument +\n  third_argument +\n  fourth_argument\nlet y = 2\n",
+            "let x = first_argument + # note\n  second_argument +\n  third_argument +\n  fourth_argument\nlet y = 2\n",
         ),
         (
             "match x\n| 1 => first_argument+second_argument+third_argument\n| _ => fourth_argument+fifth_argument+sixth_argument",

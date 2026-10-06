@@ -4,4 +4,4 @@ declare lamp = fn(
 ) -> bool
 
 fn louder() -> bool
-lamp(11, "kitchen")
+    lamp(11, "kitchen")

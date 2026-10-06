@@ -48,6 +48,7 @@ const TokenIndex = struct {
     starts: []const Entry,
     ends: []const Entry,
     bars: []const Entry,
+    arrows: []const Entry,
     opaque_starts: []const Entry,
     opaque_max_ends: []const usize,
     block_ends: []const ?usize,
@@ -76,12 +77,14 @@ const TokenIndex = struct {
         std.mem.sort(Entry, starts, {}, lessThan);
         std.mem.sort(Entry, ends, {}, lessThan);
         var bars: std.ArrayList(Entry) = .empty;
+        var arrows: std.ArrayList(Entry) = .empty;
         var opaque_starts: std.ArrayList(Entry) = .empty;
         var opaque_max_ends: std.ArrayList(usize) = .empty;
         var max_end: usize = 0;
         for (starts) |entry| {
             const token = lexed[entry.token_index];
             if (token.type == .bar) try bars.append(alloc, entry);
+            if (token.type == .fat_arrow) try arrows.append(alloc, entry);
             switch (token.type) {
                 .string, .multiline_string, .backtick_string => {
                     try opaque_starts.append(alloc, entry);
@@ -96,6 +99,7 @@ const TokenIndex = struct {
             .starts = starts,
             .ends = ends,
             .bars = bars.items,
+            .arrows = arrows.items,
             .opaque_starts = opaque_starts.items,
             .opaque_max_ends = opaque_max_ends.items,
             .block_ends = block_ends,
@@ -149,6 +153,14 @@ const TokenIndex = struct {
         return left > 0 and offset < self.opaque_max_ends[left - 1];
     }
 
+    // The body span can omit grouping parentheses. The last arrow before its
+    // first lexical node is still the arm's arrow, including nested guards.
+    fn armArrow(self: *const TokenIndex, after: usize, body: usize) ?usize {
+        const i = lowerBound(self.arrows, body);
+        if (i == 0 or self.arrows[i - 1].offset < after) return null;
+        return self.arrows[i - 1].token_index;
+    }
+
     fn armBar(self: *const TokenIndex, after: usize, before: usize) ?usize {
         const i = lowerBound(self.bars, after);
         if (i == self.bars.len or self.bars[i].offset >= before) return null;
@@ -183,6 +195,17 @@ const Collector = struct {
         // Interpolation expands to calls; all descendants still live inside the
         // opaque original string, so they cannot supply layout boundaries.
         if (self.index.insideOpaque(node_.span.start)) return;
+        switch (node_.expr) {
+            .fn_expr => |value| try self.headerBody(node_, value.body),
+            .if_expr => |value| try self.headerBody(node_, value.then_expr),
+            .unless_expr => |value| try self.headerBody(node_, value.then_expr),
+            .while_loop => |value| try self.headerBody(node_, value.body),
+            .for_loop => |value| try self.headerBody(node_, value.body),
+            .unary => |value| if (value.op == .negate) {
+                try self.add("unary_sign", node_.span.start, node_.span.end);
+            },
+            else => {},
+        }
         if (node_.expr == .block) {
             const end = block_end orelse return;
             try self.add("block", node_.span.start, end);
@@ -190,18 +213,33 @@ const Collector = struct {
             return;
         }
         if (node_.expr == .match_expr) {
+            try self.add("match_expression", node_.span.start, node_.span.end);
             const match = node_.expr.match_expr;
             var after = match.subject.span.end;
             // Subjectless matches have a synthetic subject with the match token's span.
-            for (match.arms) |arm| {
+            for (match.arms, 0..) |arm, arm_index| {
                 if (self.index.armBar(after, arm.then.span.start)) |index| {
-                    if (index + 1 < self.index.lexed.len)
-                        try self.add("match_arm", self.index.lexed[index + 1].start, arm.then.span.end);
+                    if (arm_index == 0 and TokenIndex.exact(self.index.starts, node_.span.start))
+                        try self.result.append(self.alloc, .{ .kind = "match_head", .start = node_.span.start, .end = self.index.lexed[index].start });
+                    if (index + 1 < self.index.lexed.len) {
+                        const start = self.index.lexed[index + 1].start;
+                        try self.add("match_arm", start, arm.then.span.end);
+                        if (self.index.armArrow(start, arm.then.span.start)) |arrow|
+                            try self.add("match_arm_head", start, self.index.lexed[arrow].end);
+                    }
                 }
                 after = arm.then.span.end;
             }
         }
         try self.walk(ast.Expr, node_.expr);
+    }
+    fn headerBody(self: *Collector, node: *ast.Node, body: *ast.Node) !void {
+        // Header ends are body starts, rather than AST endpoints. Only real
+        // lexical starts can guide layout; generated/opaque nodes cannot.
+        if (node.span.start >= body.span.start or self.index.insideOpaque(body.span.start)) return;
+        if (!TokenIndex.exact(self.index.starts, node.span.start) or !TokenIndex.exact(self.index.starts, body.span.start)) return;
+        try self.result.append(self.alloc, .{ .kind = "header", .start = node.span.start, .end = body.span.start });
+        try self.add("body", body.span.start, self.index.concreteBlockEnd(body) orelse body.span.end);
     }
     fn walk(self: *Collector, comptime T: type, value: T) anyerror!void {
         if (T == ast.Span) return;

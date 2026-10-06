@@ -1,5 +1,7 @@
 # Architecture deepening verification
 
+Historical verification of the first architecture deepening. Counts, serialized metadata snapshots and performance measurements apply to the recorded tree. Later changes added typed layout scopes, richer source hints, independent list fitting and input admission. See the [final source check](2026-10-06-final-check.md) for later checks and the [current architecture](../architecture.md) for module ownership.
+
 Verified 2026-10-05 on native x86_64 Linux GNU, Rust/Cargo 1.99.0 and
 exact Zig 0.17.0. Revo remains pinned to
 `b571298b6fc95bc863548f118354c8d077792f6f`.

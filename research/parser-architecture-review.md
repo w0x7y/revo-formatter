@@ -1,5 +1,7 @@
 # Parser architecture independent review
 
+Historical research/review from 2026-10-05, covering the pinned revisions cited below. The coordinate-policy concern and research corrections were resolved before implementation; see [the re-review](research-rereview.md). The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+
 Reviewed on 2026-10-05 against upstream Revo revision `b571298b6fc95bc863548f118354c8d077792f6f`. Scope was `parser-architecture.md`, the formatter design spec, and the relevant pinned frontend and macro sources. No implementation, bridge compilation, upstream edits, or changes to the inspected documents were made. Two inline programs were executed with the matching installed `revo 0.1.2 (b571298)` to check a semantic concern.
 
 ## Research compliance verdict

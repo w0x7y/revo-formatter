@@ -1,5 +1,7 @@
 # Revo formatter research
 
+Historical research/review from 2026-10-05, covering the pinned revisions cited below. The formatter and static bridge have since been implemented and tested. Use the [current architecture](../docs/architecture.md) and [documentation index](../docs/README.md) for delivered interfaces, commands and later verification. Original observations and review evidence remain below.
+
 Checked 2026-10-05 against upstream commit [`b571298`](https://github.com/if-not-nil/revo/tree/b571298b6fc95bc863548f118354c8d077792f6f).
 
 I found no working formatter for Revo source code in the current upstream tools or the editor extensions checked. Formatting is explicitly pending in the bundled language server. This supports treating a Revo formatter as missing from the checked tools; it does not prove that no unpublished or unindexed project exists.

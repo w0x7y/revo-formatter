@@ -22,14 +22,14 @@ With Zig 0.17.0 on `PATH`:
 ```sh
 zig version
 cargo build --release
-cargo test
+cargo test --all-targets
 ```
 
 Or select its executable explicitly:
 
 ```sh
 ZIG=/absolute/path/to/zig-0.17.0/zig cargo build --release
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo test
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo test --all-targets
 ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
@@ -82,11 +82,20 @@ Defaults are two spaces per indentation level and 80 display columns.
 `--indent-width` accepts 1 through 8; `--line-width` accepts 20 through 240.
 Width is a soft target. Long literals, comments, and syntax that cannot safely
 break can exceed it. The formatter can retain compact spacing through its
-validated conservative fallback. Existing statement newlines are hard
-boundaries; pipe chains do not receive independent reflow. Expression bodies
-without `do` stay at statement indentation even after a source newline.
-Continuation layouts can be awkward or exceed the target; unary signs and
-labeled `do` spacing receive only basic normalization.
+validated conservative fallback. Existing statement newlines and comment
+boundaries are retained. Short expression continuations, argument lists and
+return tables collapse onto one line when they fit. Unary minus stays attached
+to its operand, and indexing uses `nums[y]`.
+
+Control-flow headers are measured independently of their `do ... end` bodies.
+Generic lists have their own formatting group; expanded lists put each argument
+on its own indented line. Long call arguments can wrap while a short generic list
+stays inline. Operator chains, including comparisons and pipes,
+fill available columns with a single continuation indentation level. Trailing
+operator comments stay attached to the preceding line. Function expression
+bodies without `do` stay inline when short and receive indentation when expanded.
+Parser-sensitive whitespace can still require conservative layout, and long
+unbreakable expressions or comments can exceed the target.
 
 Print mode accepts one input. `--check` also accepts stdin, including when
 no input is specified. `--write` requires file paths and rejects stdin,
@@ -193,5 +202,72 @@ Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
-See [architecture verification](docs/verification/architecture-deepening.md)
-for test counts, package checks and measured indexing results.
+See the [final source check](docs/verification/2026-10-06-final-check.md) for
+current verification and the [earlier architecture report](docs/verification/architecture-deepening.md)
+for stage-specific package checks and measurements.
+
+## Development and verification
+
+Use exact Zig 0.17.0 on `PATH`, or export its absolute executable once:
+
+```sh
+export ZIG=/absolute/path/to/zig-0.17.0/zig
+cargo test --all-targets
+cargo test --doc
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+"$ZIG" fmt --check bridge.zig bridge/*.zig
+"$ZIG" test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter indexed --test-filter 'input limits:' --cache-dir target/zig-test-cache
+cargo build --release
+(cd vendor/revo && sha256sum --check SHA256SUMS)
+(cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
+```
+
+The latest source check passed 77 Rust tests (60 library, one binary, 16 CLI) and
+nine filtered Zig tests. The Rust suite includes the 120-case corpus matrix;
+these cases are not 120 additional test functions. The Zig filters select local
+bridge, index and admission tests without running upstream runtime tests.
+`cargo audit` is an optional additional dependency check when installed.
+
+For a quick manual test, save this intentionally compact source as `example.rv`:
+
+```revo
+fn twoSum(nums,target) do
+for y in 0..len(nums) do
+for x in y+1..len(nums) do
+if nums[y]+nums[x]==target do
+return {y,x}
+end
+end
+end
+end
+```
+
+```sh
+target/release/revofmt example.rv
+# Reports a formatting difference and exits 1.
+target/release/revofmt --check example.rv
+# Applies the result; the following check exits 0.
+target/release/revofmt --write example.rv
+target/release/revofmt --check example.rv
+# Try narrower output without modifying the file.
+target/release/revofmt --line-width 24 example.rv
+```
+
+At default width, the result is:
+
+```revo
+fn twoSum(nums, target) do
+  for y in 0..len(nums) do
+    for x in y + 1..len(nums) do
+      if nums[y] + nums[x] == target do
+        return {y, x}
+      end
+    end
+  end
+end
+```
+
+For contributions, read [AGENTS.md](AGENTS.md), the [domain glossary](CONTEXT.md)
+and [current architecture](docs/architecture.md). The [documentation index](docs/README.md)
+separates current guides from completed plans and historical research/reviews.

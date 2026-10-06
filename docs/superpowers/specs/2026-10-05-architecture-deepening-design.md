@@ -1,5 +1,7 @@
 # Formatter architecture deepening
 
+Historical approved design/implementation plan; implementation and its review gates are complete. Original interface sketches and stage-specific instructions below are retained as design history. Use the [current architecture](../../architecture.md) for delivered module boundaries and the [final source check](../../verification/2026-10-06-final-check.md) for verification.
+
 The user requested implementation of concrete architecture improvements, explicitly skipping the visual report and candidate-selection/grilling loop. Discovery identified four actionable findings in the recently changed layout and preservation modules. No CONTEXT.md or ADR existed; CONTEXT.md now records the resolved source-formatting language.
 
 ## Scope and invariants

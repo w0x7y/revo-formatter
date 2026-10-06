@@ -1,5 +1,10 @@
 # Input admission policy
 
+This is the current admission policy for the pinned frontend. See the
+[architecture](../architecture.md) for call ownership and
+[development checks](../../README.md#development-and-verification) for the full
+Rust and local Zig suites, including the `input limits:` filter.
+
 The public `format` boundary checks resource limits before copying source or
 calling the parser. Every candidate passes the same check before analysis and
 comparison. The CLI reads at most `MAX_SOURCE_BYTES + 1` bytes, checks length,

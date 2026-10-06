@@ -1,5 +1,7 @@
 # Task 1 implementation report
 
+Historical bridge implementation report from 2026-10-05. Task 2 and later formatter stages are complete; the temporary allowances and missing resource checks described below applied only to this stage. See the [final source check](2026-10-06-final-check.md) for later checks and the [current architecture](../architecture.md) for module ownership.
+
 Status: implementation and task checks complete; ready for independent review.
 No formatter, layout engine, CLI, macro execution, import resolution, or runtime
 compilation was added.
@@ -67,7 +69,7 @@ grouped import synthetic lists, and generated pipe blocks are excluded.
 
 1. Before implementing the bridge, four Rust behavior tests ran against
    explicit `bridge not implemented` stubs. `cargo test --lib`: **0 passed,
-   4 failed**. The failure log is `task-1-red.log` beside this report. Acceptance,
+   4 failed**. The failure log was the local development artifact `task-1-red.log`. Acceptance,
    error classification, structural change detection, and concurrent ownership
    all failed for the missing behavior.
 2. After the initial bridge: **4 passed, 0 failed**.
@@ -134,8 +136,8 @@ Original code/build/provenance: `Cargo.toml`, `Cargo.lock`, `build.rs`,
 `vendor/revo/REVISION`, `vendor/revo/SHA256SUMS`.
 Vendored source/license file list is exactly the path list in
 `vendor/revo/SHA256SUMS` (22 Zig files and LICENSE.txt).
-This report is `.superpowers/sdd/2026-10-05-revo-formatter/task-1-report.md`;
-local red logs are beside it.
+This report is maintained at `docs/verification/bridge-build.md`. Red logs were
+local development artifacts; they are not shipped beside this maintained copy.
 
 ## Concerns and review notes
 

@@ -29,10 +29,13 @@ source metadata, and exhaustive structural comparison.
 Install exact stable Zig **0.17.0** yourself, then run:
 
 ```sh
-ZIG=/absolute/path/to/zig-0.17.0/zig cargo test
+ZIG=/absolute/path/to/zig-0.17.0/zig cargo test --all-targets
 ZIG=/absolute/path/to/zig-0.17.0/zig cargo clippy --all-targets -- -D warnings
 cargo fmt --check
-/absolute/path/to/zig-0.17.0/zig test bridge.zig -lc --test-filter 'bridge:' --cache-dir target/zig-test-cache
+/absolute/path/to/zig-0.17.0/zig fmt --check bridge.zig bridge/*.zig
+/absolute/path/to/zig-0.17.0/zig test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter indexed --test-filter 'input limits:' --cache-dir target/zig-test-cache
+(cd vendor/revo && sha256sum --check SHA256SUMS)
+(cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
 ```
 
 `ZIG` selects the compiler; if unset, the build script tries `zig` on PATH.
@@ -55,6 +58,11 @@ archive, including Zig compiler-rt. It bypasses upstream `build.zig` and its
 optional dependencies. Resulting binaries have no separate Zig or Revo runtime
 dependency; normal Linux C/system libraries still apply. Build caches and
 archives are placed under Cargo's output directory, outside tracked sources.
+
+These commands select all nine local Zig bridge/index/admission tests. See the
+[development checks](README.md#development-and-verification) and
+[current architecture](docs/architecture.md) for contributor guidance. Verify
+manifests from the directories shown; their paths are directory-relative.
 
 # Syntax validation policy
 
