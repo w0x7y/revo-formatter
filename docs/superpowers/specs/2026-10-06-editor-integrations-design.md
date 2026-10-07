@@ -4,7 +4,8 @@ Approved design for the completed editor-integration stage of 2026-10-06.
 Package boundaries and proposed transport below record that stage. Later work
 fixed VS Code activation and replaced Neovim's original transport. Use the
 [documentation index](../../README.md) for current instructions, the
-[editor guide](../../../editors/README.md) for delivered packages, and the
+[archived editor guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+for the original packages, and the
 [later source/editor check](../../verification/2026-10-06-editor-final-check.md) for later
 verification and its limits.
 

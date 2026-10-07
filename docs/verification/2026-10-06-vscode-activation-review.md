@@ -3,7 +3,8 @@
 Historical review of the VS Code activation correction on 2026-10-06. Line
 references, package hash and checks below apply to the reviewed range. The
 [documentation index](../README.md) links later launcher and editor reviews;
-the [editor guide](../../editors/README.md) describes current packages, and the
+the [archived editor guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+describes the packages before extraction, and the
 [later source/editor check](2026-10-06-editor-final-check.md) records subsequent
 verification and its limits.
 

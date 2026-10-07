@@ -3,8 +3,9 @@
 Completed editor-integration plan from 2026-10-06. Interfaces and execution
 steps below record the original stage; later work fixed VS Code activation and
 Neovim timeout completion. Use the [documentation index](../../README.md) for
-current instructions, the [editor guide](../../../editors/README.md) for delivered
-packages, and the [later source/editor check](../../verification/2026-10-06-editor-final-check.md)
+current instructions, the
+[archived editor guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+for the original packages, and the [later source/editor check](../../verification/2026-10-06-editor-final-check.md)
 for later verification and its limits.
 
 > Historical execution process: implementation used subagent-driven development

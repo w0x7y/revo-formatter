@@ -1,7 +1,7 @@
 # Contributor instructions
 
 `revofmt` is a Rust library and CLI backed by a statically linked, pinned Revo
-frontend, with independent editor adapters under `editors/`.
+frontend. Editor adapters live in [dedicated repositories](docs/editors.md).
 Read [README.md](README.md) for build and test commands,
 [CONTEXT.md](CONTEXT.md) for domain terms, and
 [docs/architecture.md](docs/architecture.md) before changing module boundaries.
@@ -45,21 +45,16 @@ before completing source changes. Run checksum manifests from their own
 directories. If a reviewed golden or corpus provenance changes, regenerate its
 manifest without changing upstream fixture bytes or license notices.
 
-For editor work, read [editors/README.md](editors/README.md) and the owning
-package's guide. Keep transport, representation and lifecycle tests in that
-package; run `scripts/verify-editors` with the rebuilt formatter. The VS Code
-guide defines native-host and packaging checks separately.
-Adapters format whole unsaved buffers through an installed executable and
-argument array, apply only successful current results, and keep save formatting
-opt-in. Preserve opaque bytes through the editor representation; Zed's supported
-preservation scope is LF. Deadline and cancellation cleanup belongs to transport,
-including inherited-pipe cases. Keep personal editor settings unchanged unless
-the user asks to change them.
+The [editor integration guide](docs/editors.md) defines the public stdin/stdout
+contract and links to the adapter repositories. Keep editor source, packaging,
+transport and lifecycle tests in their owning repository. When changing CLI
+behavior consumed by adapters, run their documented checks against the rebuilt
+formatter. Keep personal editor settings unchanged unless the user asks.
 
 Update the current guides when behavior or interfaces change. Historical plans,
 research and dated review results are evidence of their recorded stages; their
 old test counts, line references and workspace paths are not current instructions.
 The [documentation index](docs/README.md) identifies current references.
 For documentation-only changes, check examples against their owning interface,
-relative links, and whitespace. Refresh local packages when their bundled guides
-change. Preserve vendor source, corpus input bytes and license notices.
+relative links, and whitespace. Preserve vendor source, corpus input bytes and
+license notices.

@@ -5,7 +5,8 @@ Line references, readiness and host limitations below apply to the reviewed
 range. Later activation, launcher and timeout fixes have their own records;
 see the [documentation index](../README.md) and
 [later source/editor check](2026-10-06-editor-final-check.md). The
-[editor guide](../../editors/README.md) describes current packages.
+[archived editor guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+describes the packages before extraction.
 
 Reviewed range: `e048b7d5..520f2374`, 2026-10-06.
 

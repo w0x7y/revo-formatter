@@ -1,6 +1,6 @@
 # Current architecture
 
-This guide describes the implemented formatter as of 2026-10-06. The
+This guide describes the implemented formatter as of 2026-10-07. The
 [domain glossary](../CONTEXT.md) defines its terms; the
 [README](../README.md) defines public behavior and options.
 
@@ -88,8 +88,9 @@ completion checks. The [admission policy](verification/input-limits.md) is the
 authoritative budget reference; changing recursion or the grammar needs renewed
 resource verification.
 
-The [documentation handoff](verification/2026-10-06-documentation-handoff.md)
-records current verification and review status. The
+The [repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md)
+records the current repository scope and checks. The
+[documentation handoff](verification/2026-10-06-documentation-handoff.md),
 [architecture follow-up](verification/2026-10-06-architecture-followup.md), earlier
 [final-check results](verification/2026-10-06-final-check.md) and
 [architecture measurements](verification/architecture-deepening.md) are
@@ -102,49 +103,21 @@ These charges stay separate from the AST traversal operator term. Ordinary
 block-free operator/prefix accounting remains intact. The policy is verified
 through public formatting and preservation on 2 MiB debug/release threads.
 
-## Editor packages
+## Editor integrations
 
-`editors/` contains independently installable adapters around the public CLI.
-The Rust crate stays at the root and does not depend on any editor package.
-Editor sources and their development dependencies are excluded from the Cargo
-source package.
+Editor adapters are maintained in separate repositories:
 
-Each editor directory owns its metadata, source, tests, and installation guide.
-Neovim separates buffer lifecycle from raw process transport and its buffer
-codec. VS Code separates provider wiring from subprocess execution and text
-edits. Zed uses declarative language registration and native external-formatter
-settings. `editors/README.md` defines their shared stdin/stdout contract;
-`scripts/verify-editors` invokes each package's checks.
+- [Neovim](https://github.com/w0x7y/revofmt.nvim) owns its buffer lifecycle, byte codec, process transport and pinned binary installer.
+- [VS Code](https://github.com/w0x7y/revofmt-vscode) owns its provider, text edits, process transport, native host tests and VSIX packaging.
+- [Zed](https://github.com/w0x7y/revofmt-zed) owns language recognition and native external formatter settings.
 
-The public [revofmt.nvim repository](https://github.com/w0x7y/revofmt.nvim) ships
-Neovim's adapter at the plugin repository root. It adds an explicit installer
-for pinned, checksum-verified formatter releases and a health check. Binary
-management is owned by that standalone package; the local adapter and regression
-suite here remain independently usable with an installed CLI.
+This repository owns the Rust library, CLI, pinned frontend and formatter tests.
+It has no editor runtime or editor development dependencies. The
+[integration guide](editors.md) defines the stdin/stdout contract and how to run
+optional downstream checks against a rebuilt CLI.
 
-Neovim transport owns its subprocess pipes and deadline timer through public
-`vim.uv` APIs. Completion closes the owned streams, so a wrapper's descendant
-holding stdout or stderr cannot delay a timeout or abort a save. Process exit
-and both output EOFs are required for normal success; cancellation, timeout and
-errors settle once and ignore late callbacks.
-
-The CLI owns syntax validation, resource admission, preservation, and
-idempotence. Adapters own transmitting the current buffer and applying a
-successful result without changing opaque bytes or overwriting newer edits.
-No adapter writes files directly or introduces an alternate formatter.
-
-The native VS Code test launcher observes both exit codes and termination
-signals in its existing polling loop. A signal fails promptly with its name;
-a zero wrapper exit still waits for an atomically published successful host
-result. Detached-group cleanup and the host deadline remain in the same owner.
-Controlled process regressions execute the existing launcher script directly;
-the native `npm run test:host` suite exercises recognition,
-automatic activation, unsaved buffers, edit application and idempotence.
-
-The architecture scan retained the other module boundaries after a deletion
-test. Removing `LayoutIndex` or `Doc` would spread containment and fitting rules
-among callers. Removing editor transport, buffer codec or text-edit modules
-would move process lifecycle and byte/position rules into their callers.
-Provider/settings separation, CLI batch prevalidation, the preservation oracle
-and the sequential editor runner had no demonstrated restructuring benefit.
-A shared editor runtime would add dependencies without demonstrated leverage.
+The CLI owns syntax validation, resource admission, preservation and
+idempotence. Adapters own transmitting the current unsaved buffer and applying
+successful current output through the editor's representation. Their guides
+define host-specific limits. Changes to that public boundary need verification
+in the affected adapter repositories.

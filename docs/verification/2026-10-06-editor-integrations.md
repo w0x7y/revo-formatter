@@ -5,15 +5,17 @@ Counts, package hashes and host limitations below describe that stage. The
 [VS Code activation follow-up](2026-10-06-vscode-activation.md) records a defect
 found after installation; the [later source/editor check](2026-10-06-editor-final-check.md)
 records subsequent admission and Neovim timeout repairs. Use the
-[documentation index](../README.md) and [editor guide](../../editors/README.md)
-for current instructions and package behavior.
+[documentation index](../README.md) for current instructions. The
+[archived editor guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+describes the packages before extraction.
 
 ## Scope and structure
 
 The implementation starts at `e048b7d5` and adds locally installable packages
 under `editors/neovim/`, `editors/vscode/`, and `editors/zed/`, in that order.
 Each owns its metadata, source, tests, installation guide and full MIT license.
-The [shared guide](../../editors/README.md) describes the CLI contract and
+The [archived shared guide](https://github.com/w0x7y/revo-formatter/blob/a480fc40bb1fbbcf4379f509f3dad41837c90988/editors/README.md)
+describes the CLI contract and
 `scripts/verify-editors` invokes all three package runners.
 
 No formatter source, bridge, existing Rust tests, upstream pin or vendor files

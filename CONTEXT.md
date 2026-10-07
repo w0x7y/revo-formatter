@@ -71,14 +71,15 @@ The remainder of an expression placed below its initial line. Flat operators sha
 ## Editor integration
 
 **Adapter**:
-An editor package that recognizes Revo files, sends the whole unsaved buffer to
-the installed CLI, and applies a successful current result. It delegates syntax,
+A separately maintained editor package that recognizes Revo files, sends the
+whole unsaved buffer to the installed CLI, and applies a successful current
+result. It delegates syntax,
 layout and preservation to the formatter.
 
 **Buffer representation**:
 The editor's text and line-ending model. Neovim and VS Code check that applying
 CLI output preserves its bytes; Zed's native pipeline limits supported
-preservation to LF source. See the [editor guides](editors/README.md).
+preservation to LF source. See the [integration guide](docs/editors.md).
 
 **Stale result**:
 Output from a request superseded by another request or a changed, closed or

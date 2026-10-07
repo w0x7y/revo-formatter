@@ -74,11 +74,12 @@ there's no directory discovery or config file yet.
 ## editors
 
 - [neovim](https://github.com/w0x7y/revofmt.nvim): install with lazy.nvim, then `:RevoFormat`.
-- [vs code](editors/vscode/README.md): install the extension package, then use Format Document.
-- [zed](editors/zed/README.md): install the local extension and configure `revofmt` as the formatter.
+- [vs code](https://github.com/w0x7y/revofmt-vscode): install the VSIX, then use Format Document.
+- [zed](https://github.com/w0x7y/revofmt-zed): configure `revofmt`, then run `editor: format`.
 
 all three format the whole unsaved buffer. format-on-save is opt-in.
-the [editor guide](editors/README.md) has setup and verification commands.
+setup, source, packaging and editor tests live in those repositories.
+the [integration guide](docs/editors.md) describes the CLI contract and downstream checks.
 
 ## build from source
 
@@ -152,14 +153,11 @@ cargo fmt --check
 cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
-scripts/verify-editors
 ```
 
 keep both debug and release tests when changing recursive paths or input limits.
-editor checks need neovim >=0.10, node.js >=20, npm and python >=3.11.
-`REVOFMT_BIN` can select an absolute formatter path; otherwise the script uses
-`target/release/revofmt`. the [vs code guide](editors/vscode/README.md#development-and-verification)
-covers native host checks and packaging, which needs node.js >=22.
+editor checks run in their [dedicated repositories](docs/editors.md#verification)
+against the rebuilt formatter.
 
 for an offline rust package check with dependencies cached, run
 `cargo package --offline --allow-dirty` with the same `ZIG` setting.

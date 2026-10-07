@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 description = "Validated, width-aware formatter for pinned Revo syntax"
 repository = "https://github.com/w0x7y/revo-formatter"
-exclude = [".tools/**", ".superpowers/**", "graft/**", "editors/**", "scripts/verify-editors"]
+exclude = [".tools/**", ".superpowers/**", "graft/**"]
 
 [[bin]]
 name = "revofmt"

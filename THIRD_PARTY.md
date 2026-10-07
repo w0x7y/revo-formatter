@@ -56,7 +56,7 @@ optional dependencies. Resulting binaries have no separate Zig or Revo runtime
 dependency; normal Linux C/system libraries still apply. Build caches and
 archives are placed under Cargo's output directory, outside tracked sources.
 
-Run the complete Rust, filtered local Zig, and editor suites from the
+Run the complete Rust and filtered local Zig suites from the
 [development checks](README.md#development-and-verification). See the
 [current architecture](docs/architecture.md) for contributor guidance. Verify
 manifests from the directories shown; their paths are directory-relative.

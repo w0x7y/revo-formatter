@@ -7,11 +7,11 @@
 - [Contributor instructions](../AGENTS.md): contracts and change workflow.
 - [Domain glossary](../CONTEXT.md): source and layout vocabulary.
 - [Architecture](architecture.md): implemented flow and module ownership.
-- [Editor integrations](../editors/README.md): package layout, shared CLI contract, installation and checks.
+- [Editor integrations](editors.md): dedicated repositories, the shared CLI contract and downstream checks.
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
-- [Documentation handoff](verification/2026-10-06-documentation-handoff.md): latest verification evidence, documentation coverage, local packages and merge preparation.
+- [Repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md): editor extraction, current checks and source-package contents.
 
 ## Plans and original designs
 
@@ -31,8 +31,10 @@ guides above for new work.
 ## Historical verification
 
 Recorded counts and benchmarks apply to the tree reviewed at each stage. Later
-reports do not retroactively rerun or replace those measurements.
+reports do not retroactively rerun or replace those measurements. Links to former
+editor files use the pre-extraction source snapshot.
 
+- [Documentation handoff](verification/2026-10-06-documentation-handoff.md): the guides, packages and verification reviewed before editor extraction.
 - [Bridge build](verification/bridge-build.md)
 - [Initial whole-project review](verification/whole-project-review.md) and [match-arm fix review](verification/match-arm-fix-review.md)
 - [Initial formatter verification](verification/2026-10-05-v0.md)

@@ -169,7 +169,7 @@ Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
-See the [documentation handoff](../docs/verification/2026-10-06-documentation-handoff.md) for
+See the [repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md) for
 current verification and review status, and the [earlier architecture report](../docs/verification/architecture-deepening.md)
 for stage-specific package checks and measurements.
 
@@ -181,7 +181,8 @@ for stage-specific package checks and measurements.
 | `bridge/` | Zig interface to the pinned frontend |
 | `vendor/revo/` | Unchanged upstream source and checksums |
 | `tests/` | CLI process tests and attributed corpus fixtures |
-| `editors/` | Self-contained Neovim, VS Code, and Zed packages |
-| `scripts/` | Repository verification commands |
 | `docs/` | Current guides, designs, plans, and verification records |
 | `research/` | Dated upstream investigations |
+
+Editor adapters and their development tooling live in
+[separate repositories](editors.md).
