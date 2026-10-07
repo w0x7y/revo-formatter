@@ -1,6 +1,5 @@
-**This project is making heavily use of AI Agents, if you have a problem with that just don't use it. Thanks!**
-
-# `revofmt`, a formatter for revo
+# `revofmt`
+# a formatter for revo
 
 a command line tool and rust library for [revo](https://github.com/if-not-nil/revo).
 it formats your code, checks that it parses the same way, and leaves
