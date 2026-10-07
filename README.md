@@ -6,32 +6,75 @@ a command line tool and rust library for [revo](https://github.com/if-not-nil/re
 it formats your code, checks that it parses the same way, and leaves
 literal and comment bytes alone. formatting the result again gives the same bytes.
 
-[get](#get) | [how to use](#how-to-use) | [editors](#editors) | [build from source](#build-from-source) | [reference](docs/formatter.md)
+[install](#install) | [how to use](#how-to-use) | [editors](#editors) | [build from source](#build-from-source) | [reference](docs/formatter.md)
 
-## get
+## install
 
-[download a release](https://github.com/w0x7y/revo-formatter/releases).
-the current binary is for linux x86_64 GNU, with glibc >=2.34 and `libgcc_s`.
-you don't need rust, zig or a revo installation to run it.
+These steps install the ready-made Linux download. You don't need Rust, Zig,
+or Revo installed.
 
-```sh
-# download the binary, checksum and license notices into an empty directory
-mkdir revofmt-download
-cd revofmt-download
-for file in revofmt-linux-x86_64-gnu SHA256SUMS LICENSE REVO-LICENSE.txt THIRD_PARTY.md; do
-  curl --fail --location --output "$file" \
-    "https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/$file"
-done
+The download works on **Linux with an Intel or AMD 64-bit processor**
+(`x86_64`), with glibc 2.34 or newer and `libgcc_s`. There are no supported
+macOS, Windows, ARM, or Alpine Linux downloads yet.
 
-# check it, then install it
-sha256sum --check SHA256SUMS && \
-  install -Dm755 revofmt-linux-x86_64-gnu "$HOME/.local/bin/revofmt"
-"$HOME/.local/bin/revofmt" --version
-```
+If you use Neovim, [the Neovim plugin](https://github.com/w0x7y/revofmt.nvim)
+can download and verify revofmt for you. For the command line, follow these steps.
 
-make sure `~/.local/bin` is on your PATH before using `revofmt` below.
-if you're here for neovim, [the plugin](https://github.com/w0x7y/revofmt.nvim)
-can download and verify the formatter for you.
+1. **Download the files.** Create a folder named `revofmt` inside your Downloads
+   folder. Click each link below and save all five files in that folder.
+
+   - [revofmt-linux-x86_64-gnu](https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/revofmt-linux-x86_64-gnu): the program.
+   - [SHA256SUMS](https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/SHA256SUMS): checks that the downloads are complete and unchanged.
+   - [LICENSE](https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/LICENSE): the formatter license.
+   - [REVO-LICENSE.txt](https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/REVO-LICENSE.txt): the Revo license.
+   - [THIRD_PARTY.md](https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/THIRD_PARTY.md): third-party notices.
+
+   Keep the filenames as shown above. If your browser displays a text file,
+   right-click its link and choose **Save link as**.
+
+2. **Install revofmt.** Open your Terminal application and paste this block.
+   If you saved the files elsewhere, replace the folder on the first line.
+
+   ```sh
+   cd "$HOME/Downloads/revofmt" &&
+     sha256sum --check SHA256SUMS &&
+     install -Dm755 revofmt-linux-x86_64-gnu "$HOME/.local/bin/revofmt"
+   ```
+
+   You should see `OK` next to each of the four checked files. The command then
+   copies the program to `~/.local/bin/revofmt`. It does not need `sudo`.
+   Keep the download folder for its license notices.
+
+3. **Try it.** Paste this into the same terminal.
+
+   ```sh
+   export PATH="$HOME/.local/bin:$PATH"
+   revofmt --version
+   printf 'let x=1' | revofmt
+   ```
+
+   The version line starts with `revofmt 0.1.1`. The last command should print:
+
+   ```revo
+   let x = 1
+   ```
+
+### If something goes wrong
+
+- **`revofmt: command not found` in a new terminal:** run the `export PATH`
+  command from step 3 again. To make it permanent, add that line to `~/.bashrc`
+  if you use Bash, or `~/.zshrc` if you use Zsh, then open a new terminal.
+  If you use Fish, run `fish_add_path ~/.local/bin` once instead.
+  `PATH` is the list of folders your terminal searches for commands.
+- **`No such file or directory` during installation:** check that the download
+  folder and all five filenames match step 1. If your Downloads folder has a
+  different name, change the path in step 2.
+- **A checksum says `FAILED`:** download that file again before installing.
+- **`GLIBC_... not found` or `Exec format error` when running revofmt:** check
+  the Linux and processor requirements above.
+
+You can now [format your Revo files](#how-to-use) or
+[set up your editor](#editors). Building from source below is optional.
 
 ## how to use
 

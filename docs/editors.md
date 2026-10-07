@@ -15,7 +15,7 @@ or require editor tools for formatter builds and tests.
 
 The Neovim plugin can download and verify a pinned formatter binary. VS Code and
 Zed use a separately installed CLI. The verified formatter platform is native
-Linux x86_64 GNU. The [formatter README](../README.md#get) covers binary
+Linux x86_64 GNU. The [formatter README](../README.md#install) covers binary
 installation and source builds.
 
 ## CLI contract
