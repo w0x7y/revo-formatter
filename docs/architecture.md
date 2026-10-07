@@ -109,7 +109,7 @@ Editor adapters are maintained in separate repositories:
 
 - [Neovim](https://github.com/w0x7y/revofmt.nvim) owns its buffer lifecycle, byte codec, process transport and pinned binary installer.
 - [VS Code](https://github.com/w0x7y/revofmt-vscode) owns its provider, text edits, process transport, native host tests and VSIX packaging.
-- [Zed](https://github.com/w0x7y/revofmt-zed) owns language recognition and native external formatter settings.
+- [Zed](https://github.com/w0x7y/revofmt-zed) owns its formatting language server, WASM launcher and pinned server downloads. A separate Revo language extension owns recognition and highlighting.
 
 This repository owns the Rust library, CLI, pinned frontend and formatter tests.
 It has no editor runtime or editor development dependencies. The

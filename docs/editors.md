@@ -43,9 +43,11 @@ supported preservation scope is UTF-8 LF source because its native pipeline
 normalizes endings. The owning guides describe exact host limits and the save
 settings needed to prevent independent whitespace cleanup.
 
-Revo syntax highlighting, completion and language-server support remain separate.
-If another extension already registers Revo in Zed, use only the formatter
-settings from `revofmt-zed` to avoid duplicate language registration.
+Revo syntax highlighting, completion and diagnostics remain separate from
+formatting. Zed's `revofmt-lsp` extension supplies a formatting language server
+for the existing Revo language without registering a language or grammar.
+Install the [Revo language extension](https://github.com/w0x7y/revo-zed-extension)
+alongside it, then apply the formatter settings from `revofmt-zed`.
 
 ## Verification
 
@@ -62,7 +64,8 @@ REVOFMT_BIN="$PWD/target/release/revofmt" ~/GitRepo/revofmt-zed/scripts/verify
 
 These are optional downstream checks, not a combined test suite in this
 repository. Neovim requires its supported editor and Python; VS Code's process
-suite requires Node.js and npm; Zed's metadata and CLI checks require Python.
+suite requires Node.js and npm; Zed's CLI, language-server and launcher checks
+require Python, Node.js and Rust.
 The [VS Code development guide](https://github.com/w0x7y/revofmt-vscode/blob/main/docs/development.md)
 separately documents native extension-host tests and VSIX packaging. Keep each
 adapter's lifecycle and transport regressions in its own repository.

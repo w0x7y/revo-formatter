@@ -1,4 +1,4 @@
-# `revofmt, a formatter for revo
+# `revofmt`, a formatter for revo
 
 a command line tool and rust library for [revo](https://github.com/if-not-nil/revo).
 it formats your code, checks that it parses the same way, and leaves
@@ -18,7 +18,7 @@ mkdir revofmt-download
 cd revofmt-download
 for file in revofmt-linux-x86_64-gnu SHA256SUMS LICENSE REVO-LICENSE.txt THIRD_PARTY.md; do
   curl --fail --location --output "$file" \
-    "https://github.com/w0x7y/revo-formatter/releases/download/v0.1.0/$file"
+    "https://github.com/w0x7y/revo-formatter/releases/download/v0.1.1/$file"
 done
 
 # check it, then install it
@@ -75,7 +75,7 @@ there's no directory discovery or config file yet.
 
 - [neovim](https://github.com/w0x7y/revofmt.nvim): install with lazy.nvim, then `:RevoFormat`.
 - [vs code](https://github.com/w0x7y/revofmt-vscode): install the VSIX, then use Format Document.
-- [zed](https://github.com/w0x7y/revofmt-zed): configure `revofmt`, then run `editor: format`.
+- [zed](https://github.com/w0x7y/revofmt-zed): install the formatting language server, then run `editor: format`.
 
 all three format the whole unsaved buffer. format-on-save is opt-in.
 setup, source, packaging and editor tests live in those repositories.
