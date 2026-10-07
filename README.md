@@ -117,9 +117,9 @@ revofmt = { path = "/absolute/path/to/revo-formatter" }
 use revofmt::{FormatError, FormatOptions, format};
 
 fn main() -> Result<(), FormatError> {
-    let output = format("let x=1", &FormatOptions::default())?;
-    assert_eq!(output, "let x = 1\n");
-    Ok(())
+  let output = format("let x=1", &FormatOptions::default())?;
+  assert_eq!(output, "let x = 1\n");
+  Ok(())
 }
 ```
 
