@@ -169,6 +169,15 @@ Negative controls cover malformed sources, whitespace-sensitive calls,
 comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
+The separate [synthetic syntax stress corpus](../tests/fixtures/stress/README.md)
+adds a readable 50-section file and reviewed default output. Whole-file,
+isolated-section and composed-expression tests cover 12,864 valid input/option
+combinations with LF/CRLF, six widths and four indent settings. A separate
+user-supplied guarded match with a typed table pattern adds 48 combinations,
+for 12,912 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
+stdin/file/check/write behavior are tested separately. It uses the pinned
+frontend; newer upstream grammar changes do not change its accepted syntax.
+
 See the [repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md) for
 current verification and review status, and the [earlier architecture report](../docs/verification/architecture-deepening.md)
 for stage-specific package checks and measurements.

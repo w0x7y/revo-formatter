@@ -77,6 +77,69 @@ fn stdin_and_explicit_stdin_print_source_only() {
 }
 
 #[test]
+fn stress_syntax_survives_stdin_file_check_and_write() {
+    let source = include_str!("fixtures/stress/syntax.rv");
+    for (line_width, indent_width) in [("20", "1"), ("80", "2"), ("240", "8")] {
+        for crlf in [false, true] {
+            let source = if crlf {
+                source.replace('\n', "\r\n")
+            } else {
+                source.to_owned()
+            };
+            let args = ["--line-width", line_width, "--indent-width", indent_width];
+            let output = run(&args, &source);
+            status(&output, 0);
+            assert!(output.stderr.is_empty());
+            let formatted = String::from_utf8(output.stdout).unwrap();
+            // The library corpus tests separately verify the actual syntax and
+            // token/comment tape. Here check the complete CLI transport.
+            assert_eq!(
+                formatted,
+                revofmt::format(
+                    &source,
+                    &revofmt::FormatOptions {
+                        line_width: line_width.parse().unwrap(),
+                        indent_width: indent_width.parse().unwrap(),
+                    }
+                )
+                .unwrap()
+            );
+            let repeated = run(&args, &formatted);
+            status(&repeated, 0);
+            assert_eq!(repeated.stdout, formatted.as_bytes());
+            assert!(repeated.stderr.is_empty());
+
+            let dir = TempDir::new();
+            let path = dir.file("stress.rv", &source);
+            let mut file_args: Vec<_> = args.iter().map(OsStr::new).collect();
+            file_args.push(path.as_os_str());
+            let printed = invoke(&file_args, "");
+            status(&printed, 0);
+            assert_eq!(printed.stdout, formatted.as_bytes());
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+            file_args.insert(0, OsStr::new("--check"));
+            let checked = invoke(&file_args, "");
+            status(&checked, 1);
+            assert!(checked.stdout.is_empty());
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+
+            file_args[0] = OsStr::new("--write");
+            let written = invoke(&file_args, "");
+            status(&written, 0);
+            assert!(written.stdout.is_empty());
+            assert_eq!(fs::read_to_string(&path).unwrap(), formatted);
+
+            file_args[0] = OsStr::new("--check");
+            let checked = invoke(&file_args, "");
+            status(&checked, 0);
+            assert!(checked.stdout.is_empty());
+            assert!(checked.stderr.is_empty());
+        }
+    }
+}
+
+#[test]
 fn file_print_check_write_and_check_again() {
     let dir = TempDir::new();
     let path = dir.file("source.rv", "let x=1");

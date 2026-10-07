@@ -1,0 +1,271 @@
+#!
+Synthetic Revo syntax stress corpus. Parse and format only; do not execute.
+Examples combine the pinned language guide with parser-sensitive boundaries.
+!#
+
+# case: numeric spellings
+let decimals={0,42,1_000,3.125,1e3,2.5e-2,0x2a,0b1010,0o52,0x1.fp2,-0.0};
+
+# case: symbolic atoms and predicate names
+let atoms={:ok,:nil,:false,:+, :foo.bar,:hello-world};
+ready?(); mutate!();
+
+# case: escaped and raw strings
+let escaped="tab\tline\nquote\"slash\\unicode\u{03bb}";
+let raw='#{not_interpolation} \n "quoted"';
+
+# case: unicode and multiline literals
+let text="שלום λ 文書 🙂";
+let raw_multiline='first
+  second';
+let double_multiline="first
+    second
+third";
+
+# case: dedented triple quoted string
+let triple="""
+  first
+    nested
+  #{value}
+  """;
+
+# case: interpolation modes and escaped delimiters
+let interpolated="value #{value:v} debug #{value:?} pretty #{value:p} literal \#{value} {{braces}}";
+let nested="#{fn() \"inner #{value}\"}";
+
+# case: ordinary comments
+let commented=1 ## inline do end { } ## +2; # end of statement
+## multi
+   line "opaque" #{also_opaque}
+##
+let following=3;
+
+# case: doc attachments
+#* function docs with `code` *#
+fn documented(x) x;
+#* assigned closure docs *#
+const documented_value=fn(x) x;
+
+# case: mutable immutable and global declarations
+let mutable=1; const immutable=2; global shared=3;
+mutable=immutable; mutable+=1; mutable-=2; mutable*=3;
+mutable/=4; mutable%=5; mutable^=2; mutable~="suffix";
+
+# case: chained assignments and precedence
+left=middle=right;
+let arithmetic=1+2*3//2%4-5/2^3^2;
+let unary=not -(-value)^2;
+
+# case: comparison logical and bitwise operators
+let comparisons={a==b,a!=b,a<b,a>b,a<=b,a>=b};
+let logical=a and b or c orelse d;
+let bits=1 band 2 bor 3 bxor 4 shl 2 shr 1;
+let joined="left"~"right"~string(value);
+
+# case: empty and parenthesized expressions
+let nil_value=(); let grouped=(((value)));
+do end;
+
+# case: tables and computed keys
+let tables={{}, {1,2,3,}, {key=1,"literal"=2,3=4,[key]=5,}};
+
+# case: nested destructuring
+const {{a,b},{c,_}}={{1,2},{3,4}};
+let {first,second}={10,20};
+{first,second}={second,first};
+
+# case: indexing fields and slices
+let accesses={table[0],table.field,table[0].field,table.field[1]};
+let slices={table[..],table[1..],table[..4],table[1..4],table[1..2..8],table[..2..]};
+
+# case: ordinary and bare calls
+invoke(); invoke(first,second,);
+invoke "bare string"; invoke {first,second};
+invoke """bare triple""";
+
+# case: call adjacency and statement boundaries
+invoke(value); invoke (value);
+invoke
+(value);
+invoke # adjacency comment
+(value);
+
+# case: method chains and postfix propagation
+receiver:method(first,second):other()[0].field;
+result()?; predicate?(); mutation!();
+
+# case: named and anonymous functions
+fn add(a,b) a+b;
+const closure=fn(x) do let y=x+1; return y end;
+(fn(x) x)(value);
+
+# case: optional typed and defaulted parameters
+fn options(?x: int, y: int=2,?z="fallback") -> int do return x+y end;
+
+# case: method and field definitions
+fn receiver:method(x) self.value+x;
+receiver.nested.field=fn(x) x;
+
+# case: generic headers calls and return tables
+fn identity<T>(x: T) -> T x;
+fn swap<T,U>(x: T,y: U) -> {U,T} {y,x};
+identity<int>(1); swap<int,string>(1,"two"); zero<int>();
+
+# case: primitive qualified optional and error types
+type Scalar=int|string|:nil;
+type Qualified=module.Value?;
+type Result=!int;
+let optional: int?=:nil;
+
+# case: generic and function types
+type Sequence=table<int>;
+type Dictionary=table<string,int>;
+type Callback=fn(x: int,?y: string) -> int;
+
+# case: record types and field documentation
+type Record={
+#* field docs *# name: string,
+#* old *# #* current *# ?count: int,
+#* positional docs *# number
+};
+type Tagged={:ok,int}|{:err,atom};
+
+# case: type ascription
+let value: int=input;
+let typed_entries={input: int,other: string};
+match input |value: int=>value |_=>0;
+
+# case: ambient and qualified declarations
+declare external=fn(x: int) -> int;
+declare module.field=number;
+declare factory<T> =fn(x: T) -> T;
+type module.Value=number;
+
+# case: native attributes
+@native fn native(x) x;
+@native const assigned=fn(x) x;
+
+# case: public declarations
+pub let public_value=1; pub const public_constant=2;
+pub fn public_fn(x) x;
+pub type PublicType=int;
+pub declare public_external=number;
+
+# case: imports without module loading
+import "missing/module";
+import {renamed="missing/one","missing/two",};
+pub import {visible="missing/three"};
+let module_value=import "missing/four";
+
+# case: if unless and dangling else
+let choice=if condition yes else no;
+unless condition do fallback() end;
+if outer if inner first else second else third;
+
+# case: nested block branches
+if condition do
+let branch=1;
+do branch end
+end else do alternative() end;
+
+# case: match literals guards and comma arms
+match value |1,2=>"small" |v when v>2=>v |_=>"other";
+
+# case: match patterns and nested match guards
+match value
+|{:ok,v} when match v |0=>:false |_=>:true =>v
+|{_,error}=>do report(error);error end
+|_=>:nil;
+
+# case: subjectless match and pattern alternatives
+match | first_condition=>1 |second_condition=>2 |_=>0;
+
+# case: loops while and for
+loop do break 42 end;
+while condition do update();continue end;
+for key,value in pairs do consume(key,value) end;
+
+# case: labeled loops and blocks
+loop/outer do
+for/inner i in 0..5 do
+if i==2 continue/inner;
+if i==4 break/outer(i);
+end
+end;
+do/once break/once(42) end;
+
+# case: bounded stepped and open ranges
+for i in 0..5 do consume(i) end;
+for i in ..5 consume(i);
+for i in 1..2..9 consume(i);
+for i in 0.. do break i end;
+for i in 9..-2.. do break i end;
+let range=1..3;
+
+# case: pinned range spacing before dots
+for i in 0 ..5 do consume(i) end;
+for i in 0..2 ..10 do consume(i) end;
+
+# case: generic call and comparison ambiguity
+identity<T>(x); identity <T>(x); identity<1>(x);
+receiver.identity<T,U>(x,y);
+
+# case: numeric fields and contextual type names
+let numeric_field=values.0;
+type(value); receiver.type; receiver.import;
+
+# case: method adjacency across comments and newlines
+receiver:method (value);
+receiver:method## adjacent ##(value);
+
+# case: contextual do and end names
+do
+let do=1; let end=2;
+receiver.do;receiver.end;
+fn names(do,end) receiver.end;
+end;
+
+# case: pipe placeholders and anonymous bodies
+let pipeline=value |> transform(first) |> _:method() |> fn(x) x+1;
+let nested_pipe=do source() end |> fn(x) do consume(x);x end;
+value |> transform(do nested() end);
+
+# case: compile time spawn and yield
+let compile_time=comp ({answer=6*7});
+let worker=spawn (fn() do yield;42 end)();
+yield; join(worker);
+
+# case: procedural macros and opaque quasiquotes
+proc keep!(iter) do let value=iter:next();{value} end;
+keep!(fn(x) x);
+let quote=`f(%first, %second)`;
+proc choose!(iter) do
+let condition=iter:next();let body=iter:next();
+{`{:if_expr, %condition, %body, {:nil}}`}
+end;
+
+# case: tests skipped tests and suites
+test "ordinary" do expect_eq(1,1)? end;
+test/skip "skipped" do failing() end;
+suite "group" do
+fn helper(x) x;
+test "nested" do expect_eq(helper(1),1)? end
+end;
+
+# case: comments at delimiter and header seams
+fn seams(## first ## x, ## second ## y) do
+invoke(## opener ## x, # argument separator
+y ## closer ##);
+if condition ## before body ## do work() end;
+end;
+
+# case: lexical joins that require conservative layout
+let number_field=1 .field;
+let separated_minus=left- -right;
+let separated_predicate=ready ?;
+
+# case: long compact headers and nested continuations
+fn long_header<T,U>(first_argument: T,second_argument: U) -> {T,U} do
+let result=outer(inner(first_argument,second_argument),{first_argument,second_argument});
+return {result,result}
+end;

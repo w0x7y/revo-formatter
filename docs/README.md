@@ -51,10 +51,12 @@ editor files use the pre-extraction source snapshot.
 
 ## Pinned upstream research
 
-Research describes the revisions inspected on 2026-10-05. Claims about upstream
-tools or ecosystem availability are dated observations.
+Research describes the revisions inspected on each note's recorded date. Claims
+about upstream tools or ecosystem availability are dated observations.
 
 - [Original formatter research](../research/revo-formatter.md)
 - [Syntax inventory](../research/syntax-inventory.md) and [independent review](../research/syntax-inventory-review.md)
 - [Parser architecture research](../research/parser-architecture.md) and [independent review](../research/parser-architecture-review.md)
 - [Research corrections re-review](../research/research-rereview.md)
+- [Syntax stress research, 2026-10-07](../research/2026-10-07-revo-syntax-stress.md): primary documentation, syntax checklist and current upstream differences; [reproducible corpus](../tests/fixtures/stress/README.md).
+- [Syntax stress verification, 2026-10-07](verification/2026-10-07-syntax-stress.md): 12,912 preservation/idempotence combinations, invalid-source controls, CLI checks and full repository verification.

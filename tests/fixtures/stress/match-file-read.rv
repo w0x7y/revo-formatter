@@ -1,0 +1,6 @@
+let f = match fs.open("./readme.md")?:read()
+  | {:ok, file} => file
+  | {:err, error} when error == :StatError
+  	=> panic("file does not exist")
+  | {error: string} => panic("#{error}!")
+  | x => panic("unknown: ", x)
