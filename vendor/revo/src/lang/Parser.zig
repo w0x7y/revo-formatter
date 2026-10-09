@@ -265,7 +265,8 @@ fn recordError(self: *Parser, kind: Kind, message: []const u8, span: ast.Span) !
         self.first_error_kind = kind;
         self.first_error_message = message;
     }
-    try diagnostic.appendErrorPair(&self.errors, self.alloc, owned, span);
+    try self.errors.append(self.alloc, .{ .@"error" = owned });
+    try self.errors.append(self.alloc, .{ .span = .{ .span = span, .role = .primary } });
     try self.error_depths.append(self.alloc, self.depth);
 }
 
@@ -730,7 +731,7 @@ fn parseFnWithBodyMin(self: *Parser, start: Token, body_min_bp: u8) anyerror!*No
             });
             return self.allocExpr(
                 Span.merge(start.span(), body.span),
-                .{ .decl = .{ .inner = bind_node, .kind = if (self.bindingScope()) .global else .@"const" } },
+                .{ .decl = .{ .inner = bind_node, .kind = if (self.bindingScope()) .global_const else .@"const" } },
             );
         }
         return error.UnexpectedToken;
@@ -844,7 +845,10 @@ fn parseTypeExpr(self: *Parser) anyerror!*ast.TypeExpr {
 
 /// const x = expr or let x = expr, with const {a, b} = <expr> destructuring
 fn parseBinding(self: *Parser, comptime kind_in: ast.DeclKind, start: Token) anyerror!*Node {
-    const kind: ast.DeclKind = if (self.bindingScope()) .global else kind_in;
+    const kind: ast.DeclKind = if (self.bindingScope())
+        (if (kind_in == .@"const") .global_const else .global)
+    else
+        kind_in;
 
     const mutable = (kind == .global or kind == .let);
 
@@ -1067,9 +1071,7 @@ fn parseFor(self: *Parser, start: Token) anyerror!*Node {
 
 /// range expr in a for-loop context
 ///   ..5, 0.., 0..5, 0..2..10, 0..2..
-/// a missing end is represented as +/-inf so the vm never terminates on its own
-/// adjacency rule: `..` must touch the next token for it to be part of the range;
-/// a space after `..` means the range is open-ended and the next token starts the body
+///   a missing end is +/-inf
 fn parseForRange(self: *Parser) anyerror!*Node {
     const zero = try self.allocExpr(self.peek().span(), .{ .number = .{ .value = 0 } });
     const one = try self.allocExpr(self.peek().span(), .{ .number = .{ .value = 1 } });
@@ -1088,12 +1090,15 @@ fn parseForRange(self: *Parser) anyerror!*Node {
 
     if (!self.match(.dotdot)) return first;
 
-    return self.parseForRangeEnd(first, one, self.tokens[self.pos - 1].span().end);
+    const dotdot = self.tokens[self.pos - 1];
+    if (dotdot.span().start != first.span.end) {
+        try self.recordError(.UnexpectedToken, "`..` must be adjacent to the range start", self.peek().span());
+        return error.UnexpectedToken;
+    }
+
+    return self.parseForRangeEnd(first, one, dotdot.span().end);
 }
 
-/// After `start..` (or `..` with synthesized start), check adjacency to decide
-/// whether the next token is the range end, the step (if followed by another `..`),
-/// or the loop body (open-ended range).
 fn parseForRangeEnd(self: *Parser, start: *Node, default_step: *Node, dotdot_end: usize) anyerror!*Node {
     if (!self.tokenAdjacent(dotdot_end)) {
         const end = try self.allocExpr(self.peek().span(), .{ .number = .{ .value = sentinelForStep(default_step) } });
@@ -1108,7 +1113,12 @@ fn parseForRangeEnd(self: *Parser, start: *Node, default_step: *Node, dotdot_end
     };
 
     if (self.match(.dotdot)) {
-        const second_dd_end = self.tokens[self.pos - 1].span().end;
+        const second_dd = self.tokens[self.pos - 1];
+        if (second_dd.span().start != expr.span.end) {
+            try self.recordError(.UnexpectedToken, "`..` must be adjacent to the step", self.peek().span());
+            return error.UnexpectedToken;
+        }
+        const second_dd_end = second_dd.span().end;
         if (!self.tokenAdjacent(second_dd_end)) {
             const end = try self.allocExpr(self.peek().span(), .{ .number = .{ .value = sentinelForStep(expr) } });
             return self.buildRangeExpr(start, end, expr);
@@ -1770,7 +1780,6 @@ fn checkIdentText(self: *Parser, text: []const u8) bool {
 }
 
 fn isStatementBoundary(self: *Parser, left: *const Node) bool {
-    if (self.looksLikeParenAssignStart()) return true;
     if (self.forcesStatementBoundary(left, self.peek().type)) return true;
     if (!expr_start_tokens.get(self.peek().type)) return false;
     return !self.canContinueExpression(left);
@@ -1801,28 +1810,6 @@ fn canContinueExpression(self: *Parser, left: *const Node) bool {
     return false;
 }
 
-fn looksLikeParenAssignStart(self: *Parser) bool {
-    if (!self.stop_on_stmt_start or !self.check(.lparen)) return false;
-
-    var i: usize = self.pos;
-    var depth: u32 = 0;
-    while (i < self.tokens.len) : (i += 1) {
-        const t = self.tokens[i].type;
-        if (t == .lparen) {
-            depth += 1;
-        } else if (t == .rparen) {
-            if (depth == 0) return false;
-            depth -= 1;
-            if (depth == 0) {
-                if (i + 1 >= self.tokens.len) return false;
-                return self.tokens[i + 1].type == .assign;
-            }
-        } else if (t == .eof) return false;
-    }
-    return false;
-}
-
-/// alloc node and set span+expr
 fn allocExpr(self: *Parser, span: Span, expr: Expr) anyerror!*Node {
     const node = try self.alloc.create(Node);
     node.* = .{ .span = span, .expr = expr };
@@ -2022,6 +2009,18 @@ fn parseInterpolatedString(self: *Parser, token: Token) anyerror!*Node {
             if (interpolationMode(trailing[trailing.len - 2 ..])) |found| {
                 mode = found;
                 body = body[0 .. trailing.len - 2];
+            } else if (trailing[trailing.len - 2] == ':' and
+                std.mem.trim(u8, trailing[0 .. trailing.len - 2], " \t\r\n").len != 0)
+            {
+                var msg_buf: [80]u8 = undefined;
+                const msg = std.mem.print(
+                    &msg_buf,
+                    "`{s}` doesnt work in interpolations, want :v, :? or :p",
+                    .{trailing[trailing.len - 2 ..]},
+                ) catch trailing[trailing.len - 2 ..];
+
+                try self.recordError(.UnexpectedToken, msg, token.span());
+                return self.allocExpr(token.span(), .{ .string = token.text });
             }
         }
         if (std.mem.trim(u8, body, " \t\r\n").len == 0) {
@@ -2177,6 +2176,27 @@ test "parses string interpolation as fmt calls" {
     try testing.expectPrinted("\"hello #{name}\"", "(call fmt \"hello %v\" name)");
     try testing.expectPrinted("\"#{value:?} #{value:p}\"", "(call fmt \"%? %p\" value value)");
     try testing.expectPrinted("\"literal {{brace}}\"", "\"literal {brace}\"");
+}
+
+test "unknown interpolation mode is an error" {
+    // lone atom interpolation is still fine
+    try testing.expectPrinted("\"#{:d}\"", "(call fmt \"%v\" :d)");
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const tokens = try Lexer.lexAt(alloc, "print \"#{t:d}\"", .{});
+    const result = try parseTokensReport(alloc, tokens, .{});
+    switch (result) {
+        .ok => return error.ExpectedParseFailure,
+        .err => |failure| {
+            try std.testing.expectEqualStrings(
+                "`:d` doesnt work in interpolations, want :v, :? or :p",
+                diagnostic.firstError(failure.report).?,
+            );
+        },
+    }
 }
 
 test "interpolation value nodes carry real source spans" {

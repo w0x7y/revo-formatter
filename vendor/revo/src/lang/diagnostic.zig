@@ -3,6 +3,8 @@
 
 const std = @import("std");
 
+const revo = @import("revo");
+
 const ast = @import("./ast.zig");
 const term = @import("../term.zig");
 
@@ -189,44 +191,8 @@ pub const Report = struct {
     }
 };
 
-/// one `Part{error}` + `Part{span primary}` pair
-///   slices stored as given, never duped, caller owns the text
-pub fn appendErrorPair(
-    list: *std.ArrayList(Part),
-    alloc: std.mem.Allocator,
-    message: []const u8,
-    span: ast.Span,
-) !void {
-    try list.append(alloc, .{ .@"error" = message });
-    try list.append(alloc, .{ .span = .{ .span = span, .role = .primary } });
-}
-
-/// same pair with a span label, stored as given like message
-pub fn appendErrorLabelPair(
-    list: *std.ArrayList(Part),
-    alloc: std.mem.Allocator,
-    message: []const u8,
-    span: ast.Span,
-    label: []const u8,
-) !void {
-    try list.append(alloc, .{ .@"error" = message });
-    try list.append(alloc, .{ .span = .{ .span = span, .role = .primary, .message = label } });
-}
-
-/// warn twin of the label pair, reports carry one message either way
-pub fn appendWarnPair(
-    list: *std.ArrayList(Part),
-    alloc: std.mem.Allocator,
-    message: []const u8,
-    span: ast.Span,
-    label: []const u8,
-) !void {
-    try list.append(alloc, .{ .warn = message });
-    try list.append(alloc, .{ .span = .{ .span = span, .role = .primary, .message = label } });
-}
-
 /// incremental pair builder for standalone reports
-///   same pairs as above, finish takes message + severity explicitly
+///   same pairs as below, finish takes message + severity explicitly
 ///   code and source stay null here, caller sets what it knows
 pub const DiagnosticBuilder = struct {
     alloc: std.mem.Allocator,
@@ -245,15 +211,18 @@ pub const DiagnosticBuilder = struct {
     }
 
     pub fn err(self: *DiagnosticBuilder, message: []const u8, span: ast.Span) !void {
-        try appendErrorPair(&self.parts, self.alloc, message, span);
+        try self.parts.append(self.alloc, .{ .@"error" = message });
+        try self.parts.append(self.alloc, .{ .span = .{ .span = span, .role = .primary } });
     }
 
     pub fn errLabel(self: *DiagnosticBuilder, message: []const u8, span: ast.Span, label: []const u8) !void {
-        try appendErrorLabelPair(&self.parts, self.alloc, message, span, label);
+        try self.parts.append(self.alloc, .{ .@"error" = message });
+        try self.parts.append(self.alloc, .{ .span = .{ .span = span, .role = .primary, .message = label } });
     }
 
     pub fn warn(self: *DiagnosticBuilder, message: []const u8, span: ast.Span, label: []const u8) !void {
-        try appendWarnPair(&self.parts, self.alloc, message, span, label);
+        try self.parts.append(self.alloc, .{ .warn = message });
+        try self.parts.append(self.alloc, .{ .span = .{ .span = span, .role = .primary, .message = label } });
     }
 
     pub fn finish(self: *DiagnosticBuilder, message: []const u8, severity: Severity) !Report {
@@ -299,6 +268,61 @@ pub fn firstWarn(report: Report) ?[]const u8 {
         if (part == .warn) return part.warn;
     }
     return null;
+}
+
+pub fn evalErrorTable(
+    vm: *revo.VM,
+    rep: Report,
+    source_name: []const u8,
+    source: []const u8,
+    phase: []const u8,
+    kind: ?[]const u8,
+    trace: []const TraceFrame,
+) !revo.Value {
+    var owned = rep;
+    owned.source_name = owned.source_name orelse source_name;
+    owned.source = owned.source orelse source;
+    const message: []const u8 = firstError(owned) orelse
+        (if (owned.message.len != 0) owned.message else kind orelse "error");
+
+    var rendered = std.Io.Writer.Allocating.init(vm.runtime.alloc);
+    defer rendered.deinit();
+    try renderReport(vm.runtime.alloc, &rendered.writer, owned, .{ .color = false });
+
+    const span = primarySpan(owned);
+    const line: ?u32 = if (span) |sp| (if (sp.span.line == 0) null else sp.span.line) else null;
+    const column: ?u32 = if (span) |sp| (if (sp.span.column == 0) null else sp.span.column) else null;
+
+    const trace_id = try vm.tables.create();
+
+    for (trace) |frame| {
+        const frame_id = try vm.tables.create();
+        try vm.putField(frame_id, "function", try vm.ownValueString(frame.function_name));
+        try vm.putField(frame_id, "source", if (frame.source_name) |name| try vm.ownValueString(name) else revo.Value.new.nil());
+
+        if (frame.span) |at| {
+            try vm.putField(frame_id, "line", revo.Value.new.num(if (at.line == 0) 1 else at.line));
+            try vm.putField(frame_id, "column", revo.Value.new.num(if (at.column == 0) 1 else at.column));
+        } else {
+            try vm.putField(frame_id, "line", revo.Value.new.nil());
+            try vm.putField(frame_id, "column", revo.Value.new.nil());
+        }
+
+        const trace_ptr = try vm.tables.get(trace_id);
+        try trace_ptr.array.append(vm.runtime.alloc, revo.Value.new.table(frame_id));
+    }
+
+    const tid = try vm.tables.create();
+    try vm.putField(tid, "message", try vm.ownValueString(message));
+    try vm.putField(tid, "phase", try vm.atomValue(phase));
+    try vm.putField(tid, "code", if (owned.code) |code| try vm.ownValueString(code) else revo.Value.new.nil());
+    try vm.putField(tid, "line", if (line) |n| revo.Value.new.num(n) else revo.Value.new.nil());
+    try vm.putField(tid, "column", if (column) |n| revo.Value.new.num(n) else revo.Value.new.nil());
+    try vm.putField(tid, "source", try vm.ownValueString(owned.source_name.?));
+    try vm.putField(tid, "rendered", try vm.ownValueString(rendered.written()));
+    try vm.putField(tid, "kind", if (kind) |name| try vm.ownValueString(name) else revo.Value.new.nil());
+    try vm.putField(tid, "trace", revo.Value.new.table(trace_id));
+    return revo.Value.new.table(tid);
 }
 
 ///

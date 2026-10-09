@@ -38,7 +38,7 @@ scope is usable only when its complete envelope fits within the current token
 range. Match subjects and arm lists own separate continuations.
 
 **Analyzed source**:
-Source text paired with its token tape and source-region hints.
+Admitted source text paired with its token tape and validated source-region hints.
 
 **Candidate**:
 A proposed layout that has not yet passed source-preservation checks.

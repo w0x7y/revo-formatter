@@ -133,10 +133,7 @@ pub fn printTypeExpr(te: *const TypeExpr, writer: *std.Io.Writer) !void {
             for (fields, 0..) |f, i| {
                 if (i > 0) try writer.writeAll(", ");
                 // numeric names are positional array entries (`{ number, number }`)
-                const positional = f.name.len > 0 and blk: {
-                    for (f.name) |c| if (!std.ascii.isDigit(c)) break :blk false;
-                    break :blk true;
-                };
+                const positional = isPositionalName(f.name);
                 if (!positional) {
                     if (f.optional) try writer.writeByte('?');
                     try writer.writeAll(f.name);
@@ -320,6 +317,9 @@ pub const DeclKind = enum {
     @"const",
     let,
     global,
+    /// repl top-level `const`
+    /// TODO: add actual "global const" syntax
+    global_const,
     test_decl,
     suite_decl,
     type_alias_decl,
@@ -469,6 +469,14 @@ pub fn bareName(t: TypeAlias) []const u8 {
         .module => |segs| return segs[segs.len - 1],
     };
     return t.name;
+}
+
+/// numeric field names are positional array entries (`{ number, number }`)
+pub fn isPositionalName(name: []const u8) bool {
+    return name.len > 0 and blk: {
+        for (name) |c| if (!std.ascii.isDigit(c)) break :blk false;
+        break :blk true;
+    };
 }
 
 /// a declare's name may name a module instead of a plain ident:

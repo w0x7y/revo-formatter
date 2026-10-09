@@ -151,7 +151,8 @@ different results after formatting.
 ## Tested upstream corpus
 
 The [vendored corpus provenance](../tests/fixtures/upstream/PROVENANCE.md) lists
-20 valid inputs from the same pinned revision: six complete `.rv` examples
+20 valid historical inputs from revision
+`b571298b6fc95bc863548f118354c8d077792f6f`: six complete `.rv` examples
 and fourteen self-contained documentation snippets. It also lists one
 malformed upstream documentation fence, which is tested as a syntax rejection.
 The valid fixtures include the demo, pipes, procedural macros, types, control
@@ -176,9 +177,13 @@ combinations with LF/CRLF, six widths and four indent settings. A separate
 user-supplied guarded match with a typed table pattern adds 48 combinations,
 for 12,912 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
 stdin/file/check/write behavior are tested separately. It uses the pinned
-frontend; newer upstream grammar changes do not change its accepted syntax.
+frontend at `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`.
+Gaps before loop-range dots and unknown interpolation mode suffixes are
+rejected by that frontend. `:v`, `:?`, `:p` and lone atom `#{:d}` are covered
+by complete-program regressions. Gaps after open-range dots can start loop
+bodies, so formatting retains their adjacency decisions.
 
-See the [repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md) for
+See the [architecture and Final Check record](verification/2026-10-09-architecture-final-check.md) for
 current verification and review status, and the [earlier architecture report](../docs/verification/architecture-deepening.md)
 for stage-specific package checks and measurements.
 

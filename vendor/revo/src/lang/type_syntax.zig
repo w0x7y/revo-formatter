@@ -5,7 +5,7 @@
 //! TypeInfo -> text in printType. TypeExpr printing, cloning, and freeing
 //! live next to the TypeExpr definition in ast.zig (pure ast operations),
 //! and TypeExpr -> TypeInfo evaluation lives in compiler/types.zig next to
-//! inference (it needs a CheckCtx scope, same as everything there).
+//! inference (it takes an AliasScope filled from the caller's maps).
 //! type refs flow one way: here -> ast, here -> compiler/types
 //!
 
@@ -310,10 +310,7 @@ pub fn printType(ti: TypeInfo, writer: *std.Io.Writer, opts: PrintOptions) !void
                 for (fields, 0..) |f, i| {
                     if (i > 0) try writer.writeAll(", ");
                     // numeric names are positional array entries
-                    const positional = f.name.len > 0 and blk: {
-                        for (f.name) |c| if (!std.ascii.isDigit(c)) break :blk false;
-                        break :blk true;
-                    };
+                    const positional = ast.isPositionalName(f.name);
                     if (!positional) {
                         if (f.optional) try writer.writeByte('?');
                         try writer.writeAll(f.name);

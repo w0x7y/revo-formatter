@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Check complete programs against the separately built, pinned Revo compiler."""
+
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REVISION = (ROOT / "vendor/revo/REVISION").read_text().strip()
+REVO = os.environ.get("REVO_BIN", "revo")
+FORMATTER = os.environ.get("REVOFMT_BIN", str(ROOT / "target/release/revofmt"))
+
+
+def invoke(command, source=None):
+    return subprocess.run(command, input=source, capture_output=True, timeout=15)
+
+
+def success(result):
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+
+
+revo_version = invoke([REVO, "version"])
+success(revo_version)
+assert REVISION[:7].encode() in revo_version.stdout + revo_version.stderr, revo_version
+formatter_version = invoke([FORMATTER, "--version"])
+success(formatter_version)
+assert REVISION.encode() in formatter_version.stdout, formatter_version.stdout
+
+VALID = [
+    'const t=42;print("#{t:v} #{t:?} #{t:p} #{:d}")',
+    'print("#{ :d }")',
+    'const t=42;print("100% complete: #{t:p}")',
+    'const t=42;print("""\n  first\n  #{t:v}\n  #{t:?}\n  """)',
+    r'const t=42;print("#{fmt(\"%v\", t):v}")',
+    r'print("literal {{brace}} \#{value}")',
+    'const mt={__display=fn(self) "visible",__debug=fn(self) "debug"};'
+    'const t=set_meta({},mt);print("#{t:v} #{t:?}")',
+    'let total=0;for i in 0..3 do total+=i end;print(total)',
+    'let total=0;for i in ..3 do total+=i end;print(total)',
+    'let total=0;for i in 0..2..6 do total+=i end;print(total)',
+    'let total=0;for i in 6..-2..0 do total+=i end;print(total)',
+    'const start=1;let total=0;for i in start..4 do total+=i end;print(total)',
+    'for i in 0.. do print(i);break i end',
+    'for i in 0..2.. do print(i);break i end',
+    'for i in 0.. break i',
+    'for i in 0..2.. break i',
+    'for i in 0..\nbreak i',
+    'for i in 0.. ## body gap ## break i',
+    'const t={0,1,2,3,4};print(t[1..4]);print(t[..2]);print(t[2..])',
+    'let x=1;(x)=2;print(x)',
+]
+
+INVALID = [
+    ('for i in 0 ..3 do i end', 'must be adjacent to the range start'),
+    ('for i in 0\t..3 do i end', 'must be adjacent to the range start'),
+    ('for i in 0\n..3 do i end', 'must be adjacent to the range start'),
+    ('for i in 0 ## gap ##..3 do i end', 'must be adjacent to the range start'),
+    ('for i in 0..2 ..6 do i end', 'must be adjacent to the step'),
+    ('for i in 0..2\n..6 do i end', 'must be adjacent to the step'),
+    ('const t=1;print("#{t:d}")', 'doesnt work in interpolations'),
+    ('const t=1;print("#{t:d  }")', 'doesnt work in interpolations'),
+    ('const t=1;print("#{t:x}")', 'doesnt work in interpolations'),
+    ('const t=1;print("""\n  #{t:d}\n  """)', 'doesnt work in interpolations'),
+    ('print("#{}")', 'empty string interpolation'),
+    ('print("#{:v}")', 'empty string interpolation'),
+    ('print("#{:?}")', 'empty string interpolation'),
+    ('print("#{:p}")', 'empty string interpolation'),
+]
+
+with tempfile.TemporaryDirectory(prefix="revo-upstream-") as temporary:
+    directory = Path(temporary)
+    checks = 0
+    for index, program in enumerate(VALID):
+        source = program.encode()
+        before = invoke([REVO, "-e", program])
+        success(before)
+        for width in [20, 24, 80, 240]:
+            command = [FORMATTER, "--line-width", str(width)]
+            formatted = invoke(command, source)
+            success(formatted)
+            repeated = invoke(command, formatted.stdout)
+            success(repeated)
+            assert repeated.stdout == formatted.stdout, program
+            fixture = directory / f"program-{index}-{width}.rv"
+            fixture.write_bytes(formatted.stdout)
+            success(invoke([REVO, "compile", str(fixture), str(fixture) + "o"]))
+            after = invoke([REVO, str(fixture)])
+            success(after)
+            assert (after.stdout, after.stderr) == (before.stdout, before.stderr), program
+            checks += 1
+    for program, diagnostic in INVALID:
+        compiler = invoke([REVO, "-e", program])
+        assert compiler.returncode != 0 and diagnostic.encode() in compiler.stderr, program
+        formatter = invoke([FORMATTER], program.encode())
+        assert formatter.returncode == 2 and formatter.stdout == b"", program
+        assert diagnostic.encode() in formatter.stderr, program
+
+    # Parse-only preservation deliberately does not duplicate compiler validation.
+    program = 'const r=0 ..3;print(r)'
+    formatted = invoke([FORMATTER], program.encode())
+    success(formatted)
+    compiler = invoke([REVO, "-e", formatted.stdout.decode()])
+    assert compiler.returncode != 0 and b"range literals only go in forloops" in compiler.stderr
+
+print(f"{len(VALID)} valid programs, {checks} compiler/behavior/idempotence checks, "
+      f"{len(INVALID)} syntax rejections, 1 compiler-only rejection; Revo {REVISION}")

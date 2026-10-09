@@ -64,8 +64,7 @@ pub fn compileExprReport(
     vm: *VM,
     expr: *const Node,
     test_mode: bool,
-    type_annotations: ?*const std.AutoHashMap(*const Node, types.TypeId),
-    type_table: ?*const types.TypeTable,
+    annotations: ?types.Annotations,
 ) !BytecodeResult {
     var arena = std.heap.ArenaAllocator.init(vm.runtime.alloc);
     defer arena.deinit();
@@ -76,8 +75,7 @@ pub fn compileExprReport(
         arena.allocator(),
         vm.runtime.alloc,
     );
-    compiler.type_annotations = type_annotations;
-    compiler.type_table = type_table;
+    compiler.annotations = annotations;
     defer compiler.deinit();
 
     compiler.compileRoot(expr) catch |err| switch (err) {
@@ -123,12 +121,8 @@ pub const Compiler = struct {
     value_stack: std.ArrayList(*ir.IrInst),
     // register cache for upvalue loads, cleared per-block in compileBlock
     upvalue_cache: std.AutoHashMap(usize, usize),
-    type_aliases: std.StringHashMap(types.TypeInfo),
-    type_annotations: ?*const std.AutoHashMap(*const Node, types.TypeId) = null,
-    /// table owning the annotated types, set together with type_annotations
-    type_table: ?*const types.TypeTable = null,
-    /// annotatedType misses during this build, temporary totality probe
-    annotation_misses: usize = 0,
+    type_aliases: std.StringHashMap(types.Alias),
+    annotations: ?types.Annotations = null,
     pending_templates: std.ArrayList(revo.TemplateID),
     declared_globals: std.StringHashMap(void),
     current_template: revo.TemplateID = 0,
@@ -158,7 +152,7 @@ pub const Compiler = struct {
             .ir_builder = try ir.IrBuilder.init(arena),
             .value_stack = try std.ArrayList(*ir.IrInst).initCapacity(arena, 32),
             .upvalue_cache = std.AutoHashMap(usize, usize).init(arena),
-            .type_aliases = std.StringHashMap(types.TypeInfo).init(arena),
+            .type_aliases = std.StringHashMap(types.Alias).init(arena),
             .declared_globals = std.StringHashMap(void).init(arena),
             .pending_templates = try std.ArrayList(revo.TemplateID).initCapacity(arena, 4),
             .masking_stack = try std.ArrayList([]const u8).initCapacity(arena, 4),
@@ -183,38 +177,39 @@ pub const Compiler = struct {
         self.value_stack.deinit(self.alloc);
     }
 
-    // the CheckCtx scope for types.zig inference and eval
+    // the CheckCtx scope for types.zig inference
     //   has annotations so nested inference reads the table, not live scope
-    //   const-cast is fine in practice,,, CheckCtx never writes the map
     pub fn check(self: *Compiler) types.CheckCtx {
         var ctx = types.CheckCtx.init(self, self.alloc);
-        if (self.type_annotations) |map| {
-            if (self.type_table) |table| {
-                ctx.annotations = .{ .map = @constCast(map), .table = @constCast(table) };
-            }
-        }
+        ctx.annotations = self.annotations;
+        ctx.scope = self.aliasScope();
         return ctx;
     }
 
+    pub fn aliasScope(self: *Compiler) types.AliasScope {
+        const fn_state = state_mod.currentFunctionState(self);
+        return .{
+            .alloc = self.alloc,
+            .type_params = if (fn_state) |st| st.type_params else &.{},
+            .aliases = &self.type_aliases,
+        };
+    }
+
     pub fn inferExprType(self: *Compiler, node: *const Node) types.TypeInfo {
-        if (self.type_annotations) |map| {
-            if (map.get(node)) |id| {
-                if (self.type_table) |table| return table.get(id);
-            }
-        }
+        if (self.lookupAnnotation(node)) |ti| return ti;
         return types.inferExprType(self.check(), node);
     }
 
     /// pipeline lowering reads this, never live inference
     ///   miss means lowering-synthesized or never-analyzed: safe any fallback
     pub fn annotatedType(self: *Compiler, node: *const Node) types.TypeInfo {
-        if (self.type_annotations) |map| {
-            if (map.get(node)) |id| {
-                if (self.type_table) |table| return table.get(id);
-            }
-            self.annotation_misses += 1;
-        }
-        return .{ .tag = .any };
+        return self.lookupAnnotation(node) orelse .{ .tag = .any };
+    }
+
+    fn lookupAnnotation(self: *Compiler, node: *const Node) ?types.TypeInfo {
+        const ann = self.annotations orelse return null;
+        const id = ann.map.get(node) orelse return null;
+        return ann.table.get(id);
     }
 
     pub fn inferIdentType(self: *Compiler, name: []const u8) types.TypeInfo {
@@ -226,7 +221,7 @@ pub const Compiler = struct {
     }
 
     fn inferTypeMap(self: *Compiler, name: []const u8) types.TypeInfo {
-        if (self.type_aliases.get(name)) |aliased| return aliased;
+        if (self.type_aliases.get(name)) |aliased| return aliased.info;
         return .{ .tag = .any };
     }
 
@@ -284,7 +279,6 @@ pub const Compiler = struct {
         const sig = types.buildFnSig(
             self.alloc,
             self,
-            evalCtxThunk,
             params,
             return_type,
             type_params,
@@ -293,28 +287,6 @@ pub const Compiler = struct {
         ) catch return .{ .tag = .any };
 
         return .{ .tag = .{ .function = sig } };
-    }
-
-    fn evalCtxThunk(self: *Compiler, te: *const ast.TypeExpr) !types.TypeInfo {
-        return try types.evalTypeExpr(self.check(), te);
-    }
-
-    pub fn resolveTypeAlias(self: *Compiler, name: []const u8) ?types.TypeInfo {
-        return self.type_aliases.get(name);
-    }
-
-    /// cant do it
-    /// no io dep in the compiler
-    /// sema validates first anwyays so degraditn to any cant false-error
-    pub fn resolveImportAlias(_: *Compiler, _: []const u8, _: []const u8) ?types.TypeInfo {
-        return null;
-    }
-
-    pub fn isTypeParam(self: *Compiler, name: []const u8) bool {
-        const fn_state = state_mod.currentFunctionState(self) orelse return false;
-        for (fn_state.type_params) |tp|
-            if (std.mem.eql(u8, tp, name)) return true;
-        return false;
     }
 
     pub fn finishBytecode(self: *Compiler) !Bytecode {
@@ -397,10 +369,18 @@ pub const Compiler = struct {
 
     pub fn recordMove(self: *Compiler, result_reg: Register) !void {
         if (self.value_stack.items.len == 0) {
+            try self.spans.append(self.alloc, self.active_span);
             _ = try self.record(.load_nil, &.{}, true, result_reg, 0);
             return;
         }
         const src = self.value_stack.items[self.value_stack.items.len - 1];
+        // self-move is a register no-op
+        // alias it instead of emitting `move r,r` for peephole to clean up later
+        if (ir.valueReg(.{ .inst = src }) == result_reg) {
+            try self.value_stack.append(self.alloc, src);
+            return;
+        }
+        try self.spans.append(self.alloc, self.active_span);
         _ = try self.record(.move, &.{.{ .inst = src }}, true, result_reg, 0);
     }
 
@@ -414,6 +394,39 @@ pub const Compiler = struct {
 
     pub fn irLen(self: *Compiler) usize {
         return self.ir_builder.instructions.items.len;
+    }
+
+    /// compact a `live` bitmap into the instruction list: keep live instructions
+    /// (and their spans), destroy dead ones, then remap jump targets and function
+    /// entry addresses, which are stored as instruction indices. dead positions
+    /// map to the next live slot so stale addresses still land on real code
+    pub fn compactIr(self: *Compiler, n: usize, live: []const bool) !void {
+        const insts = self.ir_builder.instructions.items;
+        var new_index = try self.alloc.alloc(usize, n);
+        defer self.alloc.free(new_index);
+
+        var write: usize = 0;
+        for (insts, 0..) |inst, i| {
+            new_index[i] = write;
+            if (live[i]) {
+                self.ir_builder.instructions.items[write] = inst;
+                self.spans.items[write] = self.spans.items[i];
+                write += 1;
+            } else {
+                self.alloc.free(inst.operands);
+                self.alloc.destroy(inst);
+            }
+        }
+        self.ir_builder.instructions.shrinkAndFree(self.alloc, write);
+        self.spans.shrinkAndFree(self.alloc, write);
+
+        for (self.ir_builder.instructions.items) |inst| {
+            if (ir.isBranch(inst.opcode)) inst.op_arg = new_index[inst.op_arg];
+        }
+        for (self.pending_templates.items) |template_id| {
+            const template = &self.vm.callable.templates.items[template_id];
+            template.addr = @intCast(new_index[template.addr]);
+        }
     }
 
     pub fn jump(self: *Compiler, op: Opcode) !usize {
@@ -435,7 +448,6 @@ pub const Compiler = struct {
     pub fn regDupe(self: *Compiler) !void {
         std.debug.assert(self.active_registers != 0);
         const dst = try toRegister(self.active_registers);
-        try self.spans.append(self.alloc, self.active_span);
         self.active_registers += 1;
         if (self.active_registers > self.max_registers) self.max_registers = self.active_registers;
         try self.recordMove(dst);
@@ -646,7 +658,7 @@ pub const Compiler = struct {
         const prefix = try std.mem.join(self.alloc, "::", self.test_suite_names.items);
         if (prefix.len == 0) return self.alloc.dupe(u8, test_name);
         defer self.alloc.free(prefix);
-        return self.alloc.print( "{s}::{s}", .{ prefix, test_name });
+        return self.alloc.print("{s}::{s}", .{ prefix, test_name });
     }
 
     pub fn compileValue(self: *Compiler, expr: *const Node) InternalCompileError!void {
@@ -688,7 +700,6 @@ pub const Compiler = struct {
                         self.upvalue_cache.get(upval_id) == top_inst.?.result_reg)
                     {
                         const dst = try state_mod.pushRegister(self);
-                        try self.spans.append(self.alloc, self.active_span);
                         try self.recordMove(dst);
                     } else {
                         try self.emit(.load_upval, upval_id);
@@ -875,6 +886,7 @@ pub const Compiler = struct {
                             .@"const" => .@"const",
                             .let => .let,
                             .global => .global,
+                            .global_const => .global_const,
                             else => .@"const",
                         };
                         return try self.compileBinding(b.*, kind);
@@ -907,13 +919,13 @@ pub const Compiler = struct {
                     "import statement outside function context",
                 );
                 if (state_mod.findLocalInCurrentScope(self, is.name)) |_| {
-                    const msg = try self.alloc.print( "name `{s}` is already defined", .{is.name});
+                    const msg = try self.alloc.print("name `{s}` is already defined", .{is.name});
                     return self.fail(.ParseError, expr, msg);
                 }
                 // also check import_locals to prevent double import of same name
                 for (fn_state.import_locals.items) |il| {
                     if (std.mem.eql(u8, il.name, is.name)) {
-                        const msg = try self.alloc.print( "name `{s}` is already defined by another import", .{is.name});
+                        const msg = try self.alloc.print("name `{s}` is already defined by another import", .{is.name});
                         return self.fail(.ParseError, expr, msg);
                     }
                 }
@@ -1011,10 +1023,10 @@ pub const Compiler = struct {
                 try self.pushNil();
             },
             .type_alias => |t| {
-                const type_info = types.evalTypeExpr(self.check(), t.type_expr) catch |err| switch (err) {
+                const type_info = types.evalTypeExpr(self.aliasScope(), t.type_expr) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
                 };
-                try self.type_aliases.put(ast.bareName(t), type_info);
+                try self.type_aliases.put(ast.bareName(t), .{ .info = type_info });
                 try self.pushNil();
             },
             .proc_macro => return self.fail(
@@ -1414,7 +1426,7 @@ pub const Compiler = struct {
                         const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected_type, .{});
                         const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual_type, .{});
                         try self.appendFailureReport(.ParseError, &.{
-                            .{ .@"error" = try self.alloc.print( "default for `{s}` wants {s}, got {s}", .{ sig.param_names[idx], expected_str, actual_str }) },
+                            .{ .@"error" = try self.alloc.print("default for `{s}` wants {s}, got {s}", .{ sig.param_names[idx], expected_str, actual_str }) },
                         });
                         had_error = true;
                     },
@@ -1472,8 +1484,7 @@ pub const Compiler = struct {
         );
         defer temp_compiler.deinit();
         // comp bodies come from the analyzed tree, so parent annotations hold
-        temp_compiler.type_annotations = self.type_annotations;
-        temp_compiler.type_table = self.type_table;
+        temp_compiler.annotations = self.annotations;
         temp_compiler.compileRoot(expr) catch |err| switch (err) {
             error.CompileFailed => {
                 const nested_failure = try temp_compiler.finishFailure() orelse unreachable;
@@ -1551,7 +1562,7 @@ pub const Compiler = struct {
         binding: Binding,
         kind: BindingKind,
     ) InternalCompileError!void {
-        if (binding.target.expr == .ident and kind != .global) {
+        if (binding.target.expr == .ident and kind != .global and kind != .global_const) {
             return bindings.compileLocalBinding(
                 self,
                 binding.target.expr.ident,
@@ -1576,7 +1587,7 @@ pub const Compiler = struct {
             } else try self.compile(binding.value, true);
 
             const inferred_type = if (binding.type_name) |tn|
-                try types.evalTypeExpr(self.check(), tn)
+                try types.evalTypeExpr(self.aliasScope(), tn)
             else
                 self.annotatedType(binding.value);
             try state_mod.setLocalTypeHint(self, name, inferred_type);
@@ -1585,7 +1596,7 @@ pub const Compiler = struct {
             try self.regDupe();
             try self.declared_globals.put(name, {});
             try self.emit(
-                if (kind != .@"const") .store_user_global else .store_user_global_const,
+                if (kind == .global_const or kind == .@"const") .store_user_global_const else .store_user_global,
                 try self.vm.internAtom(name),
             );
             return;
@@ -1601,7 +1612,7 @@ pub const Compiler = struct {
                 ),
                 else => {},
             }
-            if (kind == .global) {
+            if (kind == .global or kind == .global_const) {
                 try bindings.declareGlobalPattern(self, binding.target);
             } else {
                 try bindings.declarePatternLocals(
@@ -1699,7 +1710,7 @@ pub const Compiler = struct {
                 .slot = @intCast(idx),
                 .mutable = true,
                 .initialized = true,
-                .type_info = if (param.type_name) |tn| try types.evalTypeExpr(self.check(), tn) else null,
+                .type_info = if (param.type_name) |tn| try types.evalTypeExpr(self.aliasScope(), tn) else null,
                 .type_explicit = param.type_name != null,
             };
             try fn_state.locals.append(self.alloc, local);
@@ -1707,7 +1718,7 @@ pub const Compiler = struct {
             if (param.type_name) |type_name| {
                 try fn_state.type_hints.append(self.alloc, .{
                     .name = param.name,
-                    .type_info = try types.evalTypeExpr(self.check(), type_name),
+                    .type_info = try types.evalTypeExpr(self.aliasScope(), type_name),
                 });
             }
         }
@@ -1717,10 +1728,7 @@ pub const Compiler = struct {
         if (loop_sym != null) self.in_loop_depth += 1;
         defer self.in_loop_depth = prev_in_loop;
 
-        var required_count: u8 = @intCast(params.len);
-        for (params) |p| {
-            if (p.optional or p.default_value != null) required_count -= 1;
-        }
+        const required_count: u8 = @intCast(types.requiredCount(params));
         self.active_registers = params.len;
         self.max_registers = params.len;
         self.upvalue_cache.clearRetainingCapacity();

@@ -526,6 +526,94 @@ fn signatures_adjacency_and_ranges() {
 }
 
 #[test]
+fn upstream_range_start_and_step_gaps_are_syntax_errors() {
+    for source in [
+        "for i in 0 ..3 do i end",
+        "for i in 0\t..3 do i end",
+        "for i in 0\n..3 do i end",
+        "for i in 0 ## gap ##..3 do i end",
+        "for i in 0..2 ..6 do i end",
+        "for i in 0..2\n..6 do i end",
+        "let start=0;for i in start ..3 do i end",
+    ] {
+        assert!(
+            matches!(format(source, &FormatOptions::default()), Err(FormatError::Syntax { message, .. }) if message.contains("must be adjacent")),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn upstream_unknown_interpolation_modes_are_syntax_errors() {
+    for source in [
+        "const t=1;print(\"#{t:d}\")",
+        "const t=1;print(\"#{t:d  }\")",
+        "const t=1;print(\"#{t:x}\")",
+        "const t=1;print(\"\"\"\n  #{t:d}\n  \"\"\")",
+    ] {
+        assert!(
+            matches!(format(source, &FormatOptions::default()), Err(FormatError::Syntax { message, .. }) if message.contains("doesnt work in interpolations")),
+            "{source:?}"
+        );
+    }
+    for source in [
+        "print(\"#{}\")",
+        "print(\"#{:v}\")",
+        "print(\"#{:?}\")",
+        "print(\"#{:p}\")",
+    ] {
+        assert!(
+            matches!(
+                format(source, &FormatOptions::default()),
+                Err(FormatError::Syntax { .. })
+            ),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn upstream_interpolation_and_range_boundaries_preserve_programs() {
+    for (source, expected) in [
+        (
+            "const t=42;print(\"#{t:v} #{t:?} #{t:p} #{:d}\")",
+            "const t = 42; print(\"#{t:v} #{t:?} #{t:p} #{:d}\")\n",
+        ),
+        ("print(\"#{ :d }\")", "print(\"#{ :d }\")\n"),
+        (
+            "const t=42;print(\"100% complete: #{t:p}\")",
+            "const t = 42; print(\"100% complete: #{t:p}\")\n",
+        ),
+        ("for i in 0..3 do i end", "for i in 0..3 do i end\n"),
+        ("for i in ..3 do i end", "for i in ..3 do i end\n"),
+        ("for i in 0..2..6 do i end", "for i in 0..2..6 do i end\n"),
+        (
+            "for i in 0.. do break i end",
+            "for i in 0.. do break i end\n",
+        ),
+        (
+            "for i in 0..2.. do break i end",
+            "for i in 0..2.. do break i end\n",
+        ),
+        // A gap after the dots starts the body of an open-ended range.
+        ("for i in 0.. break i", "for i in 0.. break i\n"),
+        ("for i in 0..2.. break i", "for i in 0..2.. break i\n"),
+        // The new left-adjacency check is specific to for-loop ranges.
+        ("const r=0 ..3;print(r)", "const r = 0 ..3; print(r)\n"),
+    ] {
+        check(source, expected, FormatOptions::default());
+        for line_width in [20, 24, 80, 240] {
+            let options = FormatOptions {
+                line_width,
+                indent_width: 2,
+            };
+            let output = format(source, &options).unwrap();
+            assert_preserved_and_idempotent(source, &output, &options);
+        }
+    }
+}
+
+#[test]
 fn opaque_and_record_doc_fixtures() {
     for (source, expected) in [
         (

@@ -77,6 +77,36 @@ fn stdin_and_explicit_stdin_print_source_only() {
 }
 
 #[test]
+fn upstream_syntax_errors_produce_no_output_and_preserve_write_batches() {
+    for source in [
+        "for i in 0 ..3 do i end",
+        "for i in 0..2 ..6 do i end",
+        "const t=1;print(\"#{t:d}\")",
+    ] {
+        let output = run(&[], source);
+        status(&output, 2);
+        assert!(output.stdout.is_empty());
+        assert!(!output.stderr.is_empty());
+
+        let dir = TempDir::new();
+        let valid = dir.file("valid.rv", "let x=1");
+        let invalid = dir.file("invalid.rv", source);
+        let output = invoke(
+            &[
+                OsStr::new("--write"),
+                valid.as_os_str(),
+                invalid.as_os_str(),
+            ],
+            "",
+        );
+        status(&output, 2);
+        assert!(output.stdout.is_empty());
+        assert_eq!(fs::read_to_string(valid).unwrap(), "let x=1");
+        assert_eq!(fs::read_to_string(invalid).unwrap(), source);
+    }
+}
+
+#[test]
 fn stress_syntax_survives_stdin_file_check_and_write() {
     let source = include_str!("fixtures/stress/syntax.rv");
     for (line_width, indent_width) in [("20", "1"), ("80", "2"), ("240", "8")] {
@@ -204,8 +234,10 @@ fn rejects_invalid_arguments_without_source() {
         vec!["--line-width"],
         vec!["--indent-width", "0"],
         vec!["--indent-width", "9"],
+        vec!["--indent-width", "9", "--help"],
         vec!["--line-width", "19"],
         vec!["--line-width", "241"],
+        vec!["--line-width", "241", "--version"],
         vec!["--line-width", "invalid"],
         vec!["--unknown"],
         vec!["--write"],

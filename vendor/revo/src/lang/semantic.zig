@@ -184,7 +184,7 @@ const SemanticChecker = struct {
     /// non-failing diagnostics; emitted alongside success, dropped on error
     warn_parts: std.ArrayList(diagnostic.Part),
     scopes: std.ArrayList(Scope),
-    type_aliases: std.StringHashMap(Entry),
+    type_aliases: std.StringHashMap(types_mod.Alias),
     /// caller-owned out-map: declared name -> doc text, last declare wins
     docs: ?*std.StringHashMap([]const u8),
     /// one sig per baselib spec, keyed by the spec's const-storage address
@@ -258,7 +258,6 @@ const SemanticChecker = struct {
             .graph_scope = 0,
         };
 
-        // legacy scope plus the graph root underneath, builtins land in both
         try checker.scopes.append(checker.alloc, Scope.init(checker.alloc));
         if (graph) |g| {
             checker.graph_scope = try g.fileRoot(source_name, ast.Span{ .start = 0, .end = 0, .line = 0, .column = 0 });
@@ -298,7 +297,7 @@ const SemanticChecker = struct {
                     if (!gop.found_existing) gop.value_ptr.* = std.StringHashMap(types_mod.TypeInfo).init(checker.alloc);
                     try gop.value_ptr.put(s.name, t);
                 } else {
-                    const entry: Entry = .{ .info = t, .doc = if (s.doc.len > 0) s.doc else null };
+                    const entry: types_mod.Alias = .{ .info = t, .doc = if (s.doc.len > 0) s.doc else null };
                     try checker.type_aliases.put(s.name, entry);
                 }
             }
@@ -331,7 +330,7 @@ const SemanticChecker = struct {
                 else => continue,
             };
 
-            if (decl.kind == .global) continue; // duh
+            if (decl.kind == .global or decl.kind == .global_const) continue; // duh
             switch (decl.inner.expr) {
                 .binding => |b| {
                     if (b.target.expr != .ident or b.value.expr != .fn_expr) continue;
@@ -425,7 +424,7 @@ const SemanticChecker = struct {
         const here = self.scopes.items[self.scopes.items.len - 1].values;
         if (here.contains(name)) {
             try self.appendWarn(
-                try self.alloc.print( "`{s}` is already declared in this scope", .{name}),
+                try self.alloc.print("`{s}` is already declared in this scope", .{name}),
                 span,
                 try self.alloc.dupe(u8, "already declared"),
                 "duplicate-declaration",
@@ -437,7 +436,7 @@ const SemanticChecker = struct {
             i -= 1;
             if (!self.scopes.items[i].values.contains(name)) continue;
             try self.appendWarn(
-                try self.alloc.print( "`{s}` shadows an outer binding", .{name}),
+                try self.alloc.print("`{s}` shadows an outer binding", .{name}),
                 span,
                 try self.alloc.dupe(u8, "shadows outer binding"),
                 "shadowed-binding",
@@ -496,12 +495,24 @@ const SemanticChecker = struct {
             i -= 1;
             if (self.scopes.items[i].values.get(name)) |v| return v;
         }
-        return self.type_aliases.get(name);
+        if (self.type_aliases.get(name)) |a| return .{ .info = a.info, .doc = a.doc };
+        return null;
     }
 
-    // the CheckCtx scope for types.zig inference and eval
+    // the CheckCtx scope for types.zig inference
     pub fn check(self: *SemanticChecker) types_mod.CheckCtx {
-        return types_mod.CheckCtx.init(self, self.alloc);
+        var ctx = types_mod.CheckCtx.init(self, self.alloc);
+        ctx.scope = self.aliasScope();
+        return ctx;
+    }
+
+    pub fn aliasScope(self: *SemanticChecker) types_mod.AliasScope {
+        return .{
+            .alloc = self.alloc,
+            .type_params = self.current_type_params,
+            .aliases = &self.type_aliases,
+            .imports = &self.import_aliases,
+        };
     }
 
     pub fn inferIdentType(self: *SemanticChecker, name: []const u8) types_mod.TypeInfo {
@@ -515,15 +526,6 @@ const SemanticChecker = struct {
         defer self.current_type_params = saved;
         const sig = self.makeFnSig(.{ .params = params, .return_type = return_type, .type_params = type_params, .doc = doc }) catch return .{ .tag = .any };
         return .{ .tag = .{ .function = sig } };
-    }
-
-    pub fn resolveTypeAlias(self: *SemanticChecker, name: []const u8) ?types_mod.TypeInfo {
-        return (self.type_aliases.get(name) orelse return null).info;
-    }
-
-    pub fn resolveImportAlias(self: *SemanticChecker, module: []const u8, name: []const u8) ?types_mod.TypeInfo {
-        const aliases = self.import_aliases.get(module) orelse return null;
-        return aliases.get(name);
     }
 
     pub fn inferCallReturnType(
@@ -574,7 +576,7 @@ const SemanticChecker = struct {
                         }
                     }
                     const obj_str = try type_syntax.formatTypeOpts(self.alloc, object_type, .{});
-                    const msg = try self.alloc.print( "field `{s}` is not defined on {s}", .{ name, obj_str });
+                    const msg = try self.alloc.print("field `{s}` is not defined on {s}", .{ name, obj_str });
                     try self.appendError(msg, span, "unknown field");
                 }
             },
@@ -591,7 +593,7 @@ const SemanticChecker = struct {
             .qualified => |q| {
                 if (self.import_aliases.get(q.module)) |aliases| {
                     if (aliases.get(q.name) == null) {
-                        const msg = try self.alloc.print( "unknown type `{s}` for module `{s}`", .{ q.name, q.module });
+                        const msg = try self.alloc.print("unknown type `{s}` for module `{s}`", .{ q.name, q.module });
                         try self.appendError(msg, te.span, "unknown type");
                     }
                 }
@@ -611,7 +613,7 @@ const SemanticChecker = struct {
     /// user annotation: validate qualified names, then evaluate
     fn evalCheckedTypeExpr(self: *SemanticChecker, te: *const ast.TypeExpr) !types_mod.TypeInfo {
         try self.checkQualifiedTypes(te);
-        return try types_mod.evalTypeExpr(self.check(), te);
+        return try types_mod.evalTypeExpr(self.aliasScope(), te);
     }
 
     pub fn inferFieldType(self: *SemanticChecker, object: *const ast.Node, name: []const u8) types_mod.TypeInfo {
@@ -702,7 +704,7 @@ const SemanticChecker = struct {
 
         for (ft.params) |p| {
             try param_names.append(self.alloc, p.name);
-            try param_types.append(self.alloc, if (p.type_name) |tn| types_mod.evalTypeExpr(self.check(), tn) catch types_mod.TypeInfo{ .tag = .any } else types_mod.TypeInfo{ .tag = .any });
+            try param_types.append(self.alloc, if (p.type_name) |tn| types_mod.evalTypeExpr(self.aliasScope(), tn) catch types_mod.TypeInfo{ .tag = .any } else types_mod.TypeInfo{ .tag = .any });
         }
 
         const names_slice = try param_names.toOwnedSlice(self.alloc);
@@ -711,7 +713,7 @@ const SemanticChecker = struct {
         // required is the host arity, not the `?` flags, since baselib
         // spells optionals as nilable; the fixed prefix is a floor on top,
         //   so `zip(a, b, rest...)` still wants two. keep in sync
-        const ret = if (ft.return_type) |r| types_mod.evalTypeExpr(self.check(), r) catch types_mod.TypeInfo{ .tag = .any } else types_mod.TypeInfo{ .tag = .any };
+        const ret = if (ft.return_type) |r| types_mod.evalTypeExpr(self.aliasScope(), r) catch types_mod.TypeInfo{ .tag = .any } else types_mod.TypeInfo{ .tag = .any };
         const sig = try types_mod.newSignature(self.alloc, .{
             .param_names = names_slice,
             .params = types_slice,
@@ -725,23 +727,32 @@ const SemanticChecker = struct {
         return sig;
     }
 
-    fn evalCheckedThunk(self: *SemanticChecker, te: *const ast.TypeExpr) !types_mod.TypeInfo {
-        return try self.evalCheckedTypeExpr(te);
-    }
-
     fn makeFnSig(self: *SemanticChecker, fn_expr: anytype) !*FnSig {
         const doc: ?[]const u8 = if (@hasField(@TypeOf(fn_expr), "doc")) fn_expr.doc else null;
+        for (fn_expr.params) |p| if (p.type_name) |t| try self.checkQualifiedTypes(t);
+        if (fn_expr.return_type) |rt| try self.checkQualifiedTypes(rt);
 
         return try types_mod.buildFnSig(
             self.alloc,
             self,
-            evalCheckedThunk,
             fn_expr.params,
             fn_expr.return_type,
             fn_expr.type_params,
             doc,
             .{},
         );
+    }
+
+    /// true if candidate's return type eventually resolves to target's sig
+    /// , so like adopting it would make one sig reference the other in a loop
+    fn fnReturnCycles(candidate: *const FnSig, target: *const FnSig, depth: usize) bool {
+        if (depth > 64) return true;
+        if (candidate == target) return true;
+
+        return switch (candidate.return_type.tag) {
+            .function => |f| fnReturnCycles(f, target, depth + 1),
+            else => false,
+        };
     }
 
     fn analyzeFnBody(self: *SemanticChecker, fn_expr: anytype, sig: *FnSig) !types_mod.TypeInfo {
@@ -759,7 +770,7 @@ const SemanticChecker = struct {
             if (!ast.isDiscardName(param.name) and
                 self.scopes.items[self.scopes.items.len - 1].values.contains(param.name))
             {
-                const msg = try self.alloc.print( "duplicate parameter `{s}`", .{param.name});
+                const msg = try self.alloc.print("duplicate parameter `{s}`", .{param.name});
                 if (self.first_code == null) self.first_code = "duplicate-parameter";
                 try self.appendError(msg, param.name_span, "duplicate parameter");
             }
@@ -773,13 +784,36 @@ const SemanticChecker = struct {
         }
         const body_type = try self.analyzeNode(fn_expr.body);
         if (sig.return_type.tag == .any and body_type.tag != .any) {
-            sig.return_type = body_type;
+            // a fn whose inferred return type is itself
+            // (or cycles back thru other inferred fns)
+            // would make the sig self-referential
+            // and diverge every later clone/intern
+            //
+            // leave its return type open
+            const cycles = switch (body_type.tag) {
+                .function => |f| SemanticChecker.fnReturnCycles(f, sig, 0),
+                else => false,
+            };
+            if (!cycles) sig.return_type = body_type;
         }
         // validate explicit return type against inferred body type
         if (sig.return_type.tag != .any and body_type.tag != .any and !types_mod.canCoerce(body_type, sig.return_type)) {
             try self.appendReturnMismatch(fn_expr.body.span, sig.return_type, body_type);
         }
         return .{ .tag = .{ .function = sig } };
+    }
+
+    fn pushGraphScope(self: *SemanticChecker, kind: scope_graph.ScopeKind) !void {
+        if (self.graph) |g| {
+            const no_span = ast.Span{ .start = 0, .end = 0, .line = 0, .column = 0 };
+            self.graph_scope = try g.childScope(self.graph_scope, kind, no_span);
+        }
+    }
+
+    fn popGraphScope(self: *SemanticChecker) void {
+        if (self.graph) |g| {
+            self.graph_scope = g.scopes.items[self.graph_scope].parent orelse self.graph_scope;
+        }
     }
 
     fn analyzeNode(self: *SemanticChecker, node: *const ast.Node) anyerror!types_mod.TypeInfo {
@@ -789,8 +823,9 @@ const SemanticChecker = struct {
             .type_alias => |alias| try self.analyzeTypeAlias(alias, null, node.span),
             .fn_expr => |fn_expr| try self.analyzeFnExpr(fn_expr, node.span),
             .block => |exprs| blk: {
-                // synthetic blocks (e.g. from multi-import) don't create a scope
                 if (node.synthetic_block) {
+                    try self.pushGraphScope(.transparent);
+                    defer self.popGraphScope();
                     var last: types_mod.TypeInfo = .{ .tag = .any };
                     for (exprs) |expr| {
                         last = try self.analyzeNode(expr);
@@ -830,7 +865,7 @@ const SemanticChecker = struct {
                 const inner_type = try self.analyzeNode(inner);
                 if (inner_type.tag != .any and !types_mod.isResultType(inner_type)) {
                     try self.appendError(
-                        try self.alloc.print( "try expects :ok/:err tagged result, got {s}", .{try type_syntax.formatTypeOpts(self.alloc, inner_type, .{})}),
+                        try self.alloc.print("try expects :ok/:err tagged result, got {s}", .{try type_syntax.formatTypeOpts(self.alloc, inner_type, .{})}),
                         inner.span,
                         "not a result type",
                     );
@@ -945,7 +980,7 @@ const SemanticChecker = struct {
                         }
                     }
 
-                    const arm_covers = try types_mod.buildArmCovers(self.check(), arm);
+                    const arm_covers = try types_mod.buildArmCovers(self.aliasScope(), arm);
                     defer self.alloc.free(arm_covers);
 
                     // degenerate subject, every arm is trivially dead; do notih
@@ -961,7 +996,7 @@ const SemanticChecker = struct {
                             const subject_str = try type_syntax.formatTypeOpts(self.alloc, subject_type, .{});
 
                             try self.appendWarn(
-                                try self.alloc.print( "match pattern never matches {s}", .{subject_str}),
+                                try self.alloc.print("match pattern never matches {s}", .{subject_str}),
                                 arm_span,
                                 "never matches",
                                 "impossible-match-arm",
@@ -985,7 +1020,7 @@ const SemanticChecker = struct {
                                             // but what can i even do
                                         }
                                         if (e.expr == .ascribed) {
-                                            const ti = types_mod.evalTypeExpr(self.check(), e.expr.ascribed.type_name) catch break :sub false;
+                                            const ti = types_mod.evalTypeExpr(self.aliasScope(), e.expr.ascribed.type_name) catch break :sub false;
                                             break :sub types_mod.matchCoversAll(ti, covered.items);
                                         }
                                         if (patternLitType(e)) |lt| break :sub types_mod.matchCoversAll(lt, covered.items);
@@ -1114,7 +1149,7 @@ const SemanticChecker = struct {
                 const pred_type = try self.analyzeNode(v.predicate);
                 if (!types_mod.canCoerce(pred_type, .{ .tag = .bool })) {
                     try self.appendError(
-                        try self.alloc.print( "while predicate must be boolean, got {s}", .{try type_syntax.formatTypeOpts(self.alloc, pred_type, .{})}),
+                        try self.alloc.print("while predicate must be boolean, got {s}", .{try type_syntax.formatTypeOpts(self.alloc, pred_type, .{})}),
                         v.predicate.span,
                         "expected bool",
                     );
@@ -1227,7 +1262,7 @@ const SemanticChecker = struct {
         if (self.lookup(name) == null and !ast.isDiscardName(name) and
             !(self.fn_nesting > 0 and self.predeclared.contains(name)) and revo.baselib.specs.findFn(name) == null)
         {
-            const msg = try self.alloc.print( "name `{s}` is not defined", .{name});
+            const msg = try self.alloc.print("name `{s}` is not defined", .{name});
             if (self.first_code == null) self.first_code = "unknown-name";
             try self.appendError(msg, span, "unknown name");
         }
@@ -1264,7 +1299,7 @@ const SemanticChecker = struct {
             return .{ .tag = .any };
         }
         if (self.lookup(alias.name) != null) {
-            const msg = try self.alloc.print( "duplicate declaration of `{s}`", .{alias.name});
+            const msg = try self.alloc.print("duplicate declaration of `{s}`", .{alias.name});
             try self.appendError(msg, alias.type_expr.span, "duplicate declare");
             return .{ .tag = .any };
         }
@@ -1280,13 +1315,6 @@ const SemanticChecker = struct {
         const t = self.evalCheckedTypeExpr(alias.type_expr) catch types_mod.TypeInfo{ .tag = .any };
         try self.type_aliases.put(ast.bareName(alias), .{ .info = t, .doc = doc orelse alias.doc });
         return .{ .tag = .any };
-    }
-
-    pub fn isTypeParam(self: *SemanticChecker, name: []const u8) bool {
-        for (self.current_type_params) |tp| {
-            if (std.mem.eql(u8, tp, name)) return true;
-        }
-        return false;
     }
 
     fn analyzeFnExpr(self: *SemanticChecker, fn_expr: anytype, span: ast.Span) !types_mod.TypeInfo {
@@ -1346,6 +1374,14 @@ const SemanticChecker = struct {
                 try self.declare(name, fn_type, doc, .binding);
             }
             _ = try self.analyzeFnBody(binding.value.expr.fn_expr, sig);
+            if (std.mem.endsWith(u8, name, "?") and sig.return_type.tag != .bool) {
+                const msg = try self.alloc.print(
+                    "function ending with ? must return bool, got {s}",
+                    .{try type_syntax.formatTypeOpts(self.alloc, sig.return_type, .{})},
+                );
+                if (self.first_code == null) self.first_code = "predicate-return-type";
+                try self.appendError(msg, binding.target.span, "expected bool");
+            }
             if (self.type_map) |tm| {
                 _ = tm.remove(name);
                 try tm.put(try self.alloc.dupe(u8, name), fn_type);
@@ -1377,7 +1413,7 @@ const SemanticChecker = struct {
                     if (key.expr == .ident) try fields.put(key.expr.ident, field_type);
                 } else {
                     const ft = try self.analyzeNode(entry.value);
-                    const idx_name = try self.alloc.print( "{d}", .{implicit_idx});
+                    const idx_name = try self.alloc.print("{d}", .{implicit_idx});
                     implicit_idx += 1;
                     try fields.put(idx_name, ft);
                 }
@@ -1447,7 +1483,7 @@ const SemanticChecker = struct {
             .ident => |name| {
                 if (!ast.isDiscardName(name)) {
                     if (seen.contains(name)) {
-                        const msg = try self.alloc.print( "duplicate name `{s}` in pattern", .{name});
+                        const msg = try self.alloc.print("duplicate name `{s}` in pattern", .{name});
                         if (self.first_code == null) self.first_code = "duplicate-pattern-name";
                         try self.appendError(msg, pattern.span, "duplicate name");
                         return .{ .tag = .any };
@@ -1462,7 +1498,7 @@ const SemanticChecker = struct {
                 }
             },
             .ascribed => |a| {
-                const inner_ti = types_mod.evalTypeExpr(self.check(), a.type_name) catch
+                const inner_ti = types_mod.evalTypeExpr(self.aliasScope(), a.type_name) catch
                     types_mod.TypeInfo{ .tag = .any };
 
                 if (a.expr.expr == .ident and !ast.isDiscardName(a.expr.expr.ident)) {
@@ -1499,7 +1535,7 @@ const SemanticChecker = struct {
 
             if (item.expr == .ascribed) {
                 const a = item.expr.ascribed;
-                const expected = types_mod.evalTypeExpr(self.check(), a.type_name) catch types_mod.TypeInfo{ .tag = .any };
+                const expected = types_mod.evalTypeExpr(self.aliasScope(), a.type_name) catch types_mod.TypeInfo{ .tag = .any };
 
                 if (!types_mod.canCoerce(elem, expected)) {
                     const name = if (a.expr.expr == .ident) a.expr.expr.ident else "?";
@@ -1553,7 +1589,7 @@ const SemanticChecker = struct {
         switch (context.tag) {
             .table => |tbl| {
                 const fields = tbl.fields orelse return null;
-                const key = self.alloc.print( "{d}", .{i}) catch return null;
+                const key = self.alloc.print("{d}", .{i}) catch return null;
                 if (types_mod.findField(fields, key)) |f| return f.field_type;
                 return null;
             },
@@ -1570,7 +1606,7 @@ const SemanticChecker = struct {
         //   ; and win over union narrowing
         if (pattern.expr == .ascribed) {
             const a = pattern.expr.ascribed;
-            const inner_ti = types_mod.evalTypeExpr(self.check(), a.type_name) catch types_mod.TypeInfo{ .tag = .any };
+            const inner_ti = types_mod.evalTypeExpr(self.aliasScope(), a.type_name) catch types_mod.TypeInfo{ .tag = .any };
 
             if (a.expr.expr == .ident and !ast.isDiscardName(a.expr.expr.ident)) {
                 try self.declare(a.expr.expr.ident, inner_ti, null, .binding);
@@ -1634,7 +1670,7 @@ const SemanticChecker = struct {
                 _ = try self.analyzeNode(value);
                 const target_kind = @tagName(target.expr);
                 try self.appendError(
-                    try self.alloc.print( "cannot assign to {s}", .{target_kind}),
+                    try self.alloc.print("cannot assign to {s}", .{target_kind}),
                     target.span,
                     "invalid assignment target",
                 );
@@ -1666,7 +1702,7 @@ const SemanticChecker = struct {
             .add, .sub, .div, .int_div, .mod, .pow => {
                 if ((l.tag == .number and r.tag == .string) or (l.tag == .string and r.tag == .number)) {
                     try self.appendError(
-                        try self.alloc.print( "cannot {s} {s} and {s}", .{ @tagName(op), try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
+                        try self.alloc.print("cannot {s} {s} and {s}", .{ @tagName(op), try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
                         span,
                         "invalid operands",
                     );
@@ -1675,7 +1711,7 @@ const SemanticChecker = struct {
             .mul => {
                 if (!isOptimisticOperand(l) and !isOptimisticOperand(r) and (l.tag != .number or r.tag != .number)) {
                     try self.appendError(
-                        try self.alloc.print( "cannot multiply {s} and {s}", .{ try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
+                        try self.alloc.print("cannot multiply {s} and {s}", .{ try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
                         span,
                         "invalid operands",
                     );
@@ -1685,7 +1721,7 @@ const SemanticChecker = struct {
             .band, .bor, .bxor, .shl, .shr => {
                 if (!isOptimisticOperand(l) and !isOptimisticOperand(r) and (l.tag != .number or r.tag != .number)) {
                     try self.appendError(
-                        try self.alloc.print( "cannot apply {s} to {s} and {s}", .{ @tagName(op), try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
+                        try self.alloc.print("cannot apply {s} to {s} and {s}", .{ @tagName(op), try type_syntax.formatTypeOpts(self.alloc, l, .{}), try type_syntax.formatTypeOpts(self.alloc, r, .{}) }),
                         span,
                         "invalid operands",
                     );
@@ -1770,7 +1806,7 @@ const SemanticChecker = struct {
                     const name_str = try type_syntax.formatTypeOpts(self.alloc, actual_type, .{});
 
                     try self.appendError(
-                        try self.alloc.print( "mutation is not allowed for {s}", .{name_str}),
+                        try self.alloc.print("mutation is not allowed for {s}", .{name_str}),
                         idx.object.span,
                         "here",
                     );
@@ -1779,7 +1815,7 @@ const SemanticChecker = struct {
             else => {
                 const target_kind = @tagName(target.expr);
                 try self.appendError(
-                    try self.alloc.print( "cannot assign to {s}", .{target_kind}),
+                    try self.alloc.print("cannot assign to {s}", .{target_kind}),
                     target.span,
                     "invalid assignment target",
                 );
@@ -1878,22 +1914,22 @@ const SemanticChecker = struct {
                 if (is_variadic and total_args >= sig.params.len -| 1) {
                     // variadic fns are fine with >= min
                 } else if (total_args < sig.required_count) {
-                    const label = try self.alloc.print( "{d} missing args", .{
+                    const label = try self.alloc.print("{d} missing args", .{
                         sig.required_count -| total_args,
                     });
                     try self.appendError(
-                        try self.alloc.print( "`{s}` wants at least {d} args, got {d}", .{
+                        try self.alloc.print("`{s}` wants at least {d} args, got {d}", .{
                             name, sig.required_count, total_args,
                         }),
                         call.callee.span,
                         label,
                     );
                 } else if (total_args > sig.params.len) {
-                    const label = try self.alloc.print( "{d} extra args", .{
+                    const label = try self.alloc.print("{d} extra args", .{
                         total_args -| sig.params.len,
                     });
                     try self.appendError(
-                        try self.alloc.print( "`{s}` wants {d} args, got {d}", .{
+                        try self.alloc.print("`{s}` wants {d} args, got {d}", .{
                             name, sig.params.len, total_args,
                         }),
                         call.callee.span,
@@ -1911,7 +1947,7 @@ const SemanticChecker = struct {
                     named_seen = true;
                 } else if (named_seen) {
                     try self.appendError(
-                        try self.alloc.print( "positional arg cannot follow named arg", .{}),
+                        try self.alloc.print("positional arg cannot follow named arg", .{}),
                         arg.span,
                         "here",
                     );
@@ -1924,7 +1960,7 @@ const SemanticChecker = struct {
                         if (isNamedParam(later_arg)) |later_pn| {
                             if (std.mem.eql(u8, pn, later_pn)) {
                                 try self.appendError(
-                                    try self.alloc.print( "duplicate named arg `{s}`", .{pn}),
+                                    try self.alloc.print("duplicate named arg `{s}`", .{pn}),
                                     later_arg.span,
                                     "already specified",
                                 );
@@ -1942,11 +1978,11 @@ const SemanticChecker = struct {
                             const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
                             const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
                             try self.appendError(
-                                try self.alloc.print( "arg 1 to `{s}` wants {s}, got {s}", .{
+                                try self.alloc.print("arg 1 to `{s}` wants {s}, got {s}", .{
                                     name, expected_str, actual_str,
                                 }),
                                 call.callee.expr.field.object.span,
-                                try self.alloc.print( "not {s} (got {s})", .{
+                                try self.alloc.print("not {s} (got {s})", .{
                                     expected_str, actual_str,
                                 }),
                             );
@@ -1966,11 +2002,11 @@ const SemanticChecker = struct {
                                     const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
                                     const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
                                     try self.appendError(
-                                        try self.alloc.print( "arg `{s}` to `{s}` wants {s}, got {s}", .{
+                                        try self.alloc.print("arg `{s}` to `{s}` wants {s}, got {s}", .{
                                             pn, name, expected_str, actual_str,
                                         }),
                                         arg.span,
-                                        try self.alloc.print( "not {s} (got {s})", .{
+                                        try self.alloc.print("not {s} (got {s})", .{
                                             expected_str, actual_str,
                                         }),
                                     );
@@ -1989,11 +2025,11 @@ const SemanticChecker = struct {
                             const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
                             const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
                             try self.appendError(
-                                try self.alloc.print( "arg {d} (`{s}`) to `{s}` wants {s}, got {s}", .{
+                                try self.alloc.print("arg {d} (`{s}`) to `{s}` wants {s}, got {s}", .{
                                     pi + 1, param_name, name, expected_str, actual_str,
                                 }),
                                 call.args[pi].span,
-                                try self.alloc.print( "not {s} (got {s})", .{
+                                try self.alloc.print("not {s} (got {s})", .{
                                     expected_str, actual_str,
                                 }),
                             );
@@ -2015,17 +2051,17 @@ const SemanticChecker = struct {
                     const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
                     const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
                     const msg = if (call.implicit_self and i == 0)
-                        try self.alloc.print( "arg 1 (`{s}`) to `{s}` wants {s}, got {s}", .{
+                        try self.alloc.print("arg 1 (`{s}`) to `{s}` wants {s}, got {s}", .{
                             param_name, name, expected_str, actual_str,
                         })
                     else
-                        try self.alloc.print( "arg {d} (`{s}`) to `{s}` wants {s}, got {s}", .{
+                        try self.alloc.print("arg {d} (`{s}`) to `{s}` wants {s}, got {s}", .{
                             i + 1, param_name, name, expected_str, actual_str,
                         });
                     try self.appendError(
                         msg,
                         if (call.implicit_self and i == 0) call.callee.expr.field.object.span else call.args[i - self_offset].span,
-                        try self.alloc.print( "not {s} (got {s})", .{
+                        try self.alloc.print("not {s} (got {s})", .{
                             expected_str, actual_str,
                         }),
                     );
@@ -2108,7 +2144,7 @@ const SemanticChecker = struct {
     ) !void {
         const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
         const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
-        const msg = try self.alloc.print( "`{s}` wants {s}, got {s}", .{
+        const msg = try self.alloc.print("`{s}` wants {s}, got {s}", .{
             name,
             expected_str,
             actual_str,
@@ -2124,23 +2160,25 @@ const SemanticChecker = struct {
     fn appendReturnMismatch(self: *SemanticChecker, span: ast.Span, expected: types_mod.TypeInfo, actual: types_mod.TypeInfo) !void {
         const expected_str = try type_syntax.formatTypeOpts(self.alloc, expected, .{});
         const actual_str = try type_syntax.formatTypeOpts(self.alloc, actual, .{});
-        const msg = try self.alloc.print( "return type mismatch: wanted {s}, got {s}", .{
+        const msg = try self.alloc.print("return type mismatch: wanted {s}, got {s}", .{
             expected_str,
             actual_str,
         });
-        try self.appendError(msg, span, try self.alloc.print( "return type not {s} (got {s})", .{
+        try self.appendError(msg, span, try self.alloc.print("return type not {s} (got {s})", .{
             expected_str,
             actual_str,
         }));
     }
 
     fn appendError(self: *SemanticChecker, message: []const u8, span: ast.Span, label: []const u8) !void {
-        try diagnostic.appendErrorLabelPair(&self.errors, self.alloc, message, span, try self.alloc.dupe(u8, label));
+        try self.errors.append(self.alloc, .{ .@"error" = message });
+        try self.errors.append(self.alloc, .{ .span = .{ .span = span, .role = .primary, .message = try self.alloc.dupe(u8, label) } });
     }
 
     fn appendWarn(self: *SemanticChecker, message: []const u8, span: ast.Span, label: []const u8, code: []const u8) !void {
         if (self.first_warn_code == null) self.first_warn_code = code;
-        try diagnostic.appendWarnPair(&self.warn_parts, self.alloc, message, span, try self.alloc.dupe(u8, label));
+        try self.warn_parts.append(self.alloc, .{ .warn = message });
+        try self.warn_parts.append(self.alloc, .{ .span = .{ .span = span, .role = .primary, .message = try self.alloc.dupe(u8, label) } });
     }
 };
 

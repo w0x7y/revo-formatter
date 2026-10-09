@@ -172,7 +172,7 @@ fn main() -> Result<(), FormatError> {
 ## the limits
 
 supported syntax is pinned to revo revision
-`b571298b6fc95bc863548f118354c8d077792f6f`.
+`e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`.
 validation compares token/comment bytes and the syntax tree, ignoring source
 coordinates. it doesn't resolve imports, check types or execute macros.
 a macro that reads source positions can observe formatting changes.
@@ -199,6 +199,18 @@ cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)
 ```
+
+To check complete programs with a separately built upstream compiler at the
+vendored revision, run:
+
+```sh
+REVO_BIN=/absolute/path/to/revo/zig-out/bin/revo scripts/check-upstream
+```
+
+This checks compiler acceptance, execution results before and after formatting,
+idempotence at four widths, and the range/interpolation rejection boundaries.
+It also records a compiler-only range error that the parse-only formatter
+intentionally accepts.
 
 keep both debug and release tests when changing recursive paths or input limits.
 editor checks run in their [dedicated repositories](docs/editors.md#verification)

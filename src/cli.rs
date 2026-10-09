@@ -82,19 +82,12 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
                     .to_str()
                     .and_then(|s| s.parse::<usize>().ok())
                     .ok_or_else(|| format!("{name} requires a positive integer"))?;
-                let (range, destination) = if name == "--indent-width" {
-                    (1..=8, &mut options.indent_width)
+                if name == "--indent-width" {
+                    options.indent_width = value;
                 } else {
-                    (20..=240, &mut options.line_width)
-                };
-                if !range.contains(&value) {
-                    return Err(format!(
-                        "{name} must be {} through {}",
-                        range.start(),
-                        range.end()
-                    ));
+                    options.line_width = value;
                 }
-                *destination = value;
+                options.validate().map_err(|error| error.to_string())?;
             }
             _ if arg != "-" && arg.to_string_lossy().starts_with('-') => {
                 return Err(format!("unrecognized option: {}", arg.to_string_lossy()));

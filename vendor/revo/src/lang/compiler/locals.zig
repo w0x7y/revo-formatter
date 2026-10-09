@@ -77,43 +77,41 @@ pub const LoopFrame = struct {
     function_index: usize,
 };
 
-pub fn LoopScope(comptime T: type) type {
-    return struct {
-        compiler: *T,
-        prev_in_loop: usize,
-        pub fn init(compiler: *T, label: ?[]const u8) !@This() {
-            const prev = compiler.in_loop_depth;
-            compiler.in_loop_depth += 1;
-            const result_reg = try pushRegister(compiler);
-            try compiler.spans.append(compiler.alloc, compiler.active_span);
-            const loop_idx = try compiler.vm.addConstant(revo.Value.new.core(.loop));
-            try compiler.recordLoad(.load_const, result_reg, loop_idx);
-            try compiler.loop_stack.append(compiler.alloc, .{
-                .label = label,
-                .continue_target = 0,
-                .result_reg = result_reg,
-                .break_jumps = try std.ArrayList(usize).initCapacity(compiler.alloc, 4),
-                .continue_jumps = try std.ArrayList(usize).initCapacity(compiler.alloc, 4),
-                .function_index = compiler.functions.items.len,
-            });
-            return .{ .compiler = compiler, .prev_in_loop = prev };
+pub const LoopScope = struct {
+    compiler: *Compiler,
+    prev_in_loop: usize,
+    pub fn init(compiler: *Compiler, label: ?[]const u8) !LoopScope {
+        const prev = compiler.in_loop_depth;
+        compiler.in_loop_depth += 1;
+        const result_reg = try pushRegister(compiler);
+        try compiler.spans.append(compiler.alloc, compiler.active_span);
+        const loop_idx = try compiler.vm.addConstant(revo.Value.new.core(.loop));
+        try compiler.recordLoad(.load_const, result_reg, loop_idx);
+        try compiler.loop_stack.append(compiler.alloc, .{
+            .label = label,
+            .continue_target = 0,
+            .result_reg = result_reg,
+            .break_jumps = try std.ArrayList(usize).initCapacity(compiler.alloc, 4),
+            .continue_jumps = try std.ArrayList(usize).initCapacity(compiler.alloc, 4),
+            .function_index = compiler.functions.items.len,
+        });
+        return .{ .compiler = compiler, .prev_in_loop = prev };
+    }
+    pub fn deinit(self: *@This()) void {
+        const c = self.compiler;
+        var frame = c.loop_stack.pop().?;
+        const exit_addr: usize = c.irLen();
+        while (frame.break_jumps.pop()) |idx| {
+            c.patchJumpToLabel(idx, exit_addr);
         }
-        pub fn deinit(self: *@This()) void {
-            const c = self.compiler;
-            var frame = c.loop_stack.pop().?;
-            const exit_addr: usize = c.irLen();
-            while (frame.break_jumps.pop()) |idx| {
-                c.patchJumpToLabel(idx, exit_addr);
-            }
-            while (frame.continue_jumps.pop()) |idx| {
-                c.patchJumpToLabel(idx, frame.continue_target);
-            }
-            frame.break_jumps.deinit(c.alloc);
-            frame.continue_jumps.deinit(c.alloc);
-            c.in_loop_depth = self.prev_in_loop;
+        while (frame.continue_jumps.pop()) |idx| {
+            c.patchJumpToLabel(idx, frame.continue_target);
         }
-    };
-}
+        frame.break_jumps.deinit(c.alloc);
+        frame.continue_jumps.deinit(c.alloc);
+        c.in_loop_depth = self.prev_in_loop;
+    }
+};
 
 pub fn toRegister(n: usize) !Register {
     std.debug.assert(n <= std.math.maxInt(Register));
@@ -258,12 +256,12 @@ pub fn predeclare(self: *Compiler, exprs: []const *Node) !void {
                 if (decl.kind == .declare_decl) continue;
                 const key = ast.bareName(t);
                 if (self.type_aliases.contains(key)) continue;
-                const type_info = try types.evalTypeExpr(self.check(), t.type_expr);
-                try self.type_aliases.put(key, type_info);
+                const type_info = try types.evalTypeExpr(self.aliasScope(), t.type_expr);
+                try self.type_aliases.put(key, .{ .info = type_info });
             },
             .binding => |binding| {
                 if (binding.target.expr != .ident or binding.value.expr != .fn_expr) continue;
-                if (decl.kind == .global) continue; // globals are not locals
+                if (decl.kind == .global or decl.kind == .global_const) continue; // globals are not locals
                 const name = binding.target.expr.ident;
                 if (ast.isDiscardName(name)) continue;
                 _ = try reuseOrDeclareLocal(self, name, decl.kind == .let);
@@ -381,17 +379,12 @@ pub fn allocFnSig(
     return try types.buildFnSig(
         self.alloc,
         self,
-        evalCtxThunk,
         params,
         return_type,
         type_params,
         null,
         .{ .degrade_param = true, .want_defaults = true },
     );
-}
-
-fn evalCtxThunk(self: *Compiler, te: *const ast.TypeExpr) !types.TypeInfo {
-    return try types.evalTypeExpr(self.check(), te);
 }
 
 pub fn declareFnSignature(

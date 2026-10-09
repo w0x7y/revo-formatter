@@ -4,7 +4,8 @@ mod layout;
 mod layout_index;
 mod oracle;
 pub use error::FormatError;
-pub const UPSTREAM_REVISION: &str = "b571298b6fc95bc863548f118354c8d077792f6f";
+use std::borrow::Cow;
+pub const UPSTREAM_REVISION: &str = "e94e6d89ddaabb3249b38c1b10df87c700d1e8dc";
 /// Maximum source length, in UTF-8 bytes. Syntax complexity has additional limits.
 pub const MAX_SOURCE_BYTES: usize = 256 * 1024;
 
@@ -23,26 +24,34 @@ impl Default for FormatOptions {
     }
 }
 
+impl FormatOptions {
+    /// Check the supported indentation and line-width ranges.
+    pub fn validate(&self) -> Result<(), FormatError> {
+        if !(1..=8).contains(&self.indent_width) || !(20..=240).contains(&self.line_width) {
+            return Err(FormatError::InvalidOptions(
+                "indent width must be 1..=8 and line width 20..=240".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Format without changing token bytes or syntax, modulo source coordinates.
 /// Procedural macros that inspect offsets, lines or columns can observe formatting.
 /// Literal contents remain opaque. Invalid input produces no formatted candidate.
 /// Inputs exceeding the documented resource limits return `FormatError::Validation`.
 pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
-    if !(1..=8).contains(&options.indent_width) || !(20..=240).contains(&options.line_width) {
-        return Err(FormatError::InvalidOptions(
-            "indent width must be 1..=8 and line width 20..=240".into(),
-        ));
-    }
-    oracle::preflight(source)?;
-    let mut original = source.to_owned();
+    options.validate()?;
+    // The oracle admits the borrowed input before parsing or allocating a copy.
+    let mut original = Cow::Borrowed(source);
     // A returned result must be a fixed point of the complete choice algorithm,
     // including conservative fallback. Never emit an unstable intermediate.
     for _ in 0..4 {
-        let candidate = choose_layout(&original, options)?;
-        if candidate == original {
+        let candidate = choose_layout(original.as_ref(), options)?;
+        if candidate == original.as_ref() {
             return Ok(candidate);
         }
-        original = candidate;
+        original = Cow::Owned(candidate);
     }
     Err(FormatError::Validation(
         "layout did not reach a stable result".into(),

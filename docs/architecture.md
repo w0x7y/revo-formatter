@@ -1,14 +1,15 @@
 # Current architecture
 
-This guide describes the implemented formatter as of 2026-10-07. The
+This guide describes the implemented formatter as of 2026-10-09. The
 [domain glossary](../CONTEXT.md) defines its terms; the
 [README](../README.md) defines public behavior and options.
 
 ## Formatting flow
 
-1. `format` validates options and admits the source before copying or parsing it.
-2. The oracle creates an `AnalyzedSource` pairing source text with validated token
-   ranges and source-region hints from the pinned lexer/parser.
+1. `format` validates options through `FormatOptions::validate` and borrows the
+   source until the oracle has admitted and parsed it.
+2. The oracle owns admission and creates an `AnalyzedSource` pairing source text
+   with validated token ranges and source-region hints from the pinned lexer/parser.
 3. Layout builds a document from complete token envelopes and renders a preferred
    candidate. If that candidate fails preservation, it tries conservative layout.
 4. `AnalyzedSource::preserves` admits and parses the candidate, compares the exact
@@ -24,8 +25,8 @@ Source positions can change, including positions observable by procedural macros
 
 | Module | Responsibility |
 | --- | --- |
-| [src/lib.rs](../src/lib.rs) | Public options, source admission, preferred/conservative choice and fixed-point bound |
-| [src/oracle.rs](../src/oracle.rs) | Owned FFI results, validated metadata, paired analyzed source and candidate preservation |
+| [src/lib.rs](../src/lib.rs) | Public option validation, preferred/conservative choice and fixed-point bound |
+| [src/oracle.rs](../src/oracle.rs) | Source admission, owned FFI results, validated metadata, paired analyzed source and candidate preservation |
 | [src/layout_index.rs](../src/layout_index.rs) | Indexed source facts, complete lexical envelopes and range-bounded typed scopes |
 | [src/layout.rs](../src/layout.rs) | Token spacing and document construction within the owning scope |
 | [src/document.rs](../src/document.rs) | Cached flat widths, groups, fill continuations, enclosures, suffix fitting and rendering |
@@ -97,8 +98,12 @@ records the current repository scope and checks. The
 stage-specific evidence, not measurements of every later change.
 
 Admission is iterative and lexer-based, with counters shared across decoded
-fragments. Possible `do` introducers consume layout units; their presence also
-couples recursive prefix costs into that budget, including earlier fragments.
+fragments. The oracle admits every analyzed source, including generated
+candidates, before invoking the parser. AST equivalence accepts only analyzed
+pairs. Private collector stress tests explicitly bypass admission for trusted,
+shallow programs beyond the public token budget; that helper is not a second
+production entrypoint. Possible `do` introducers consume layout units; their
+presence also couples recursive prefix costs into that budget, including earlier fragments.
 These charges stay separate from the AST traversal operator term. Ordinary
 block-free operator/prefix accounting remains intact. The policy is verified
 through public formatting and preservation on 2 MiB debug/release threads.

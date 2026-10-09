@@ -59,8 +59,8 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
         .ok => |ok| ok,
         .err => |failure| {
             var diag = failure;
-            if (source.name) |name| diag.report.source_name = name;
             diag.report = try diag.report.copy(vm.runtime.diag_alloc);
+            if (source.name) |name| diag.report.source_name = try vm.runtime.diag_alloc.dupe(u8, name);
             return .{ .err = .{ .parse = diag } };
         },
     };
@@ -93,8 +93,8 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
         .ok => |ok| ok,
         .proc_err, .macro_err => |report| {
             var copied = try report.copy(vm.runtime.diag_alloc);
-            copied.source_name = source.name;
-            copied.source = source.text;
+            if (source.name) |name| copied.source_name = try vm.runtime.diag_alloc.dupe(u8, name);
+            copied.source = try vm.runtime.diag_alloc.dupe(u8, source.text);
             return .{ .err = .{ .expand = .{ .report = copied } } };
         },
     };
@@ -103,30 +103,31 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
     defer type_annotations.deinit();
     var type_table = compiler.types.TypeTable.init(arena.allocator());
     var scope_graph = scope_graph_mod.ScopeGraph.init(arena.allocator());
+    const annotations = compiler.types.Annotations{ .map = &type_annotations, .table = &type_table };
 
     const known_globals = try knownGlobalsFromVm(vm, vm.runtime.alloc);
     defer vm.runtime.alloc.free(known_globals);
 
     const PipelineResolver = struct {
-        vm: *VM,
+        fs: import_scan.Fs,
         cache: *import_scan.ImportCache,
         fn resolve(ptr: *anyopaque, path: []const u8, a: std.mem.Allocator) ?[]const u8 {
             const self: *@This() = @ptrCast(@alignCast(ptr));
             if (comptime !revo.is_freestanding) {
-                const resolved = (import_scan.resolveModuleFile(self.vm, path) catch return null) orelse return null;
-                defer self.vm.runtime.alloc.free(resolved);
+                const resolved = (import_scan.resolveModuleFileWithFs(self.fs, path) catch return null) orelse return null;
+                defer self.fs.alloc.free(resolved);
                 // shared libs are opaque to the compiler; the module resolves untyped
                 if (std.mem.endsWith(u8, resolved, ".so") or std.mem.endsWith(u8, resolved, ".dylib")) {
                     return null;
                 }
                 if (self.cache.lookup(resolved)) |hit| return a.dupe(u8, hit) catch null;
 
-                return std.Io.Dir.cwd().readFileAlloc(self.vm.runtime.io, resolved, a, std.Io.Limit.unlimited) catch null;
+                return std.Io.Dir.cwd().readFileAlloc(self.fs.io, resolved, a, std.Io.Limit.unlimited) catch null;
             }
             return null;
         }
     };
-    var pipeline_resolver = PipelineResolver{ .vm = vm, .cache = &import_cache };
+    var pipeline_resolver = PipelineResolver{ .fs = import_scan.Fs.fromVm(vm), .cache = &import_cache };
 
     if (try semantic.analyze(
         vm.runtime.alloc,
@@ -135,7 +136,7 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
         source.text,
         known_globals,
         null,
-        .{ .map = &type_annotations, .table = &type_table },
+        annotations,
         null,
         .{ .ptr = &pipeline_resolver, .resolveFn = PipelineResolver.resolve },
         &scope_graph,
@@ -154,7 +155,7 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
         .install_debug_info = opts.install_debug_info,
         .source = source,
         .test_mode = opts.test_mode,
-    }, &type_annotations, &type_table);
+    }, annotations);
     return switch (compile_result) {
         .ok => |bytecode| .{ .ok = bytecode },
         .err => |failure| .{ .err = .{ .compile = failure } },
@@ -164,6 +165,16 @@ pub fn buildWithWarnings(vm: *VM, source: Source, opts: BuildOptions, warnings: 
 pub const Source = struct {
     text: []const u8,
     name: ?[]const u8 = null,
+};
+
+pub const Fs = import_scan.Fs;
+
+pub const Sigs = struct {
+    known_globals: []const []const u8 = &.{},
+
+    pub fn fromVmGlobals(known_globals: []const []const u8) Sigs {
+        return .{ .known_globals = known_globals };
+    }
 };
 
 pub const ParseOptions = struct {
@@ -276,7 +287,7 @@ fn dottedMacroName(alloc: std.mem.Allocator, callee: *const Node) !?[]u8 {
     var name = try alloc.dupe(u8, parts[0]);
     errdefer alloc.free(name);
     for (parts[1..part_count]) |part| {
-        const combined = try alloc.print( "{s}.{s}", .{ name, part });
+        const combined = try alloc.print("{s}.{s}", .{ name, part });
         alloc.free(name);
         name = combined;
     }
@@ -393,11 +404,11 @@ fn macroReport(
     errdefer b.deinit();
 
     for (missed) |m| {
-        const msg = try allocator.print( fmt, .{m.name});
+        const msg = try allocator.print(fmt, .{m.name});
         try b.err(msg, m.span);
     }
 
-    const first = try allocator.print( fmt, .{missed[0].name});
+    const first = try allocator.print(fmt, .{missed[0].name});
     errdefer allocator.free(first);
 
     var report = try b.finish(first, .err);
@@ -411,15 +422,13 @@ pub fn compile(
     vm: *VM,
     expanded: Expanded,
     opts: CompileOptions,
-    type_annotations: ?*const std.AutoHashMap(*const Node, compiler.types.TypeId),
-    type_table: ?*const compiler.types.TypeTable,
+    annotations: ?compiler.types.Annotations,
 ) !CompileResult {
     const compiled = try compiler.compileExprReport(
         vm,
         expanded.root,
         opts.test_mode,
-        type_annotations,
-        type_table,
+        annotations,
     );
     return switch (compiled) {
         .ok => |bytecode| blk: {
@@ -439,6 +448,15 @@ pub fn compile(
     };
 }
 
+pub fn errorReport(err: Error) diagnostic.Report {
+    return switch (err) {
+        .parse => |failure| failure.report,
+        .expand => |failure| failure.report,
+        .compile => |failure| failure.report,
+        .semantic => |failure| failure.report,
+    };
+}
+
 pub fn renderError(
     allocator: std.mem.Allocator,
     writer: *std.Io.Writer,
@@ -446,29 +464,10 @@ pub fn renderError(
     err: Error,
     opts: diagnostic.RenderOptions,
 ) !void {
-    return switch (err) {
-        .parse => |failure| blk: {
-            var report = failure.report;
-            report.source_name = report.source_name orelse source.name;
-            report.source = source.text;
-            break :blk diagnostic.renderReport(allocator, writer, report, opts);
-        },
-        .expand => |failure| blk: {
-            break :blk diagnostic.renderReport(allocator, writer, failure.report, opts);
-        },
-        .compile => |failure| blk: {
-            var report = failure.report;
-            report.source_name = report.source_name orelse source.name;
-            report.source = source.text;
-            break :blk diagnostic.renderReport(allocator, writer, report, opts);
-        },
-        .semantic => |failure| blk: {
-            var report = failure.report;
-            report.source_name = report.source_name orelse source.name;
-            report.source = source.text;
-            break :blk diagnostic.renderReport(allocator, writer, report, opts);
-        },
-    };
+    var report = errorReport(err);
+    report.source_name = report.source_name orelse source.name;
+    report.source = source.text;
+    return diagnostic.renderReport(allocator, writer, report, opts);
 }
 
 /// render a warnings report
@@ -482,13 +481,8 @@ pub fn renderWarnings(allocator: std.mem.Allocator, writer: *std.Io.Writer, sour
 }
 
 pub fn deinitError(alloc: std.mem.Allocator, err: Error) void {
-    var mutable = err;
-    switch (mutable) {
-        .parse => |*failure| failure.report.deinit(alloc),
-        .expand => |*failure| failure.report.deinit(alloc),
-        .compile => |*failure| failure.report.deinit(alloc),
-        .semantic => |*failure| failure.report.deinit(alloc),
-    }
+    var report = errorReport(err);
+    report.deinit(alloc);
 }
 
 /// flat merge of prelude roots before user code: one shared scope, so

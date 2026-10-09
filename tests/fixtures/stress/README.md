@@ -7,11 +7,13 @@ need not exist, and some loops intentionally have no upper bound.
 formatter options. It retains all source tokens and comments.
 
 The examples combine the pinned
-[language guide](https://github.com/if-not-nil/revo/blob/b571298b6fc95bc863548f118354c8d077792f6f/docs/docs.md)
+[language guide](https://github.com/if-not-nil/revo/blob/e94e6d89ddaabb3249b38c1b10df87c700d1e8dc/docs/docs.md)
 with parser-sensitive cases identified in the
 [research note](../../../research/2026-10-07-revo-syntax-stress.md).
 These are original synthetic examples, rather than copied upstream fixture
-bytes. They do not change the attributed corpus or its checksum manifest.
+bytes. The two formerly accepted gaps before range dots are rejection
+regressions in `src/tests/formatting.rs`; this valid corpus now uses gaps
+after open-ended range dots before loop bodies. They do not change the attributed corpus or its checksum manifest.
 
 Coverage includes numeric spellings, atoms, Unicode, multiline strings,
 interpolation modes, all comment forms, binding and assignment operators,

@@ -11,6 +11,9 @@
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
+- [Integration verification](verification/2026-10-09-integration.md): public grammar revision, updated Zed pin and fresh pre-integration tests across the six repos.
+- [Architecture and Final Check](verification/2026-10-09-architecture-final-check.md): ownership changes, complete review scope, tests and publication limits before authorized integration.
+- [Upstream refresh verification](verification/2026-10-09-upstream-refresh.md): the preceding compiler, grammar and editor refresh stage.
 - [Repository cleanup verification](verification/2026-10-07-editor-repository-cleanup.md): editor extraction, current checks and source-package contents.
 
 ## Plans and original designs

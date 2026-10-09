@@ -1,14 +1,17 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `b571298b6fc95bc863548f118354c8d077792f6f`.
+at revision `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
 is separately covered by the root `LICENSE`.
 
 `tests/fixtures/upstream/` contains unchanged examples and documentation extracts
-from that same revision, plus locally reviewed formatted expected outputs.
+from the earlier revision
+`b571298b6fc95bc863548f118354c8d077792f6f`, plus locally reviewed formatted
+expected outputs. These historical inputs remain unchanged and are tested
+against the current frontend pin.
 Its [PROVENANCE.md](tests/fixtures/upstream/PROVENANCE.md) enumerates every
 selected input with exact upstream paths and line ranges. The corpus retains
 its own unchanged upstream MIT notice in `LICENSE.txt` and file checksums in
@@ -23,6 +26,14 @@ pipeline parsing, loads imports, expands macros, performs semantic analysis,
 or invokes a Revo runtime. No upstream source modifications or stub runtime
 modules are used. The separate `bridge/` modules implement owned JSON results,
 source metadata, and exhaustive structural comparison.
+
+The refreshed closure still contains 22 files. Upstream's `global_const` AST
+variant participates in the bridge's existing exhaustive enum comparison and
+generic source traversal; neither needs a special declaration case. New
+runtime-facing imports in upstream diagnostics remain unused by pure parsing.
+The bridge build still needs only Zig's standard library and libc, with no new
+Cargo or Zig package dependencies. Filtered bridge tests and the native debug
+and release suites verify this build boundary.
 
 ## Source builds
 

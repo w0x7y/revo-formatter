@@ -25,7 +25,7 @@ struct Analysis {
     tokens: Vec<SourceToken>,
     regions: Vec<SyntaxRegion>,
 }
-/// Source text and validated metadata are inseparable at every layout boundary.
+/// Admitted source text and validated metadata are inseparable at every layout boundary.
 #[derive(Debug)]
 pub(crate) struct AnalyzedSource<'a> {
     source: &'a str,
@@ -88,13 +88,12 @@ impl<'a> AnalyzedSource<'a> {
     }
 
     pub(crate) fn preserves(&self, candidate: &str) -> Result<bool, FormatError> {
-        preflight(candidate)?;
         let formatted = match analyze(candidate) {
             Ok(analysis) => analysis,
             Err(FormatError::Syntax { .. }) => return Ok(false),
             Err(error) => return Err(error),
         };
-        Ok(self.same_tape(&formatted) && equivalent(self.source, candidate)?)
+        Ok(self.same_tape(&formatted) && equivalent(self, &formatted)?)
     }
 }
 
@@ -109,7 +108,7 @@ unsafe extern "C" {
     fn revo_equivalent(a: *const u8, a_len: usize, b: *const u8, b_len: usize) -> Buffer;
     fn revo_free(buffer: Buffer);
 }
-pub(crate) fn preflight(source: &str) -> Result<(), FormatError> {
+fn preflight(source: &str) -> Result<(), FormatError> {
     if source.len() > crate::MAX_SOURCE_BYTES {
         return Err(FormatError::Validation(format!(
             "input complexity limit exceeded: source bytes ({})",
@@ -171,11 +170,23 @@ fn decode_response(bytes: &[u8]) -> Result<Response, FormatError> {
     Ok(result)
 }
 pub(crate) fn analyze(source: &str) -> Result<AnalyzedSource<'_>, FormatError> {
+    preflight(source)?;
+    analyze_unchecked(source)
+}
+
+// Production callers enter through analyze; only bounded, trusted metadata
+// stress tests bypass admission to exercise the collector beyond public limits.
+fn analyze_unchecked(source: &str) -> Result<AnalyzedSource<'_>, FormatError> {
     // SAFETY: both arguments describe the borrowed source, live for this call.
     let result = decode(unsafe { revo_analyze(source.as_ptr(), source.len()) })?;
     AnalyzedSource::from_response(source, result)
 }
-pub(crate) fn equivalent(original: &str, candidate: &str) -> Result<bool, FormatError> {
+fn equivalent(
+    original: &AnalyzedSource<'_>,
+    candidate: &AnalyzedSource<'_>,
+) -> Result<bool, FormatError> {
+    let original = original.source();
+    let candidate = candidate.source();
     // SAFETY: source slices remain live for the complete synchronous call.
     decode(unsafe {
         revo_equivalent(
@@ -192,6 +203,11 @@ pub(crate) fn equivalent(original: &str, candidate: &str) -> Result<bool, Format
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn equivalent(original: &str, candidate: &str) -> Result<bool, FormatError> {
+        super::equivalent(&analyze(original)?, &analyze(candidate)?)
+    }
+
     #[test]
     fn preservation_rejects_same_tape_different_ast() {
         for (source, candidate) in [("f(1)", "f (1)"), ("f 'hello'", "f\n'hello'")] {
@@ -683,7 +699,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
             let started = std::time::Instant::now();
-            let analysis = analyze(&source).unwrap();
+            let analysis = analyze_unchecked(&source).unwrap();
             eprintln!(
                 "nested block metadata: {count} units / {} bytes in {:?}",
                 source.len(),
@@ -701,12 +717,13 @@ mod tests {
 
     #[test]
     fn source_metadata_scales_to_many_statements_and_arms() {
+        // Trusted collector stress inputs exceed public token admission.
         for count in [200, 400, 800] {
             let statements = (0..count)
                 .map(|i| format!("do let x = {i} end"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            let analysis = analyze(&statements).unwrap();
+            let analysis = analyze_unchecked(&statements).unwrap();
             assert_eq!(analysis.tokens().len(), count * 6);
             assert_eq!(analysis.regions().len(), count * 3);
             assert_eq!(
@@ -724,7 +741,7 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join(" ")
             );
-            let analysis = analyze(&arms).unwrap();
+            let analysis = analyze_unchecked(&arms).unwrap();
             assert_eq!(analysis.tokens().len(), count * 4 + 2);
             assert_eq!(analysis.regions().len(), count * 2 + 3);
             let actual: Vec<_> = analysis

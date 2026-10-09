@@ -1,6 +1,20 @@
 use super::assert_preserved_and_idempotent;
 use crate::{FormatError, FormatOptions, MAX_SOURCE_BYTES, format};
 
+#[test]
+fn analysis_admits_source_before_parsing() {
+    for source in [
+        format!("'{}'", "x".repeat(MAX_SOURCE_BYTES)),
+        "let x=1;".repeat(1200),
+    ] {
+        assert!(matches!(
+            crate::oracle::analyze(&source),
+            Err(FormatError::Validation(message)) if message.contains("input complexity limit")
+        ));
+    }
+    assert!(crate::oracle::analyze("let x=1").is_ok());
+}
+
 fn blocks(depth: usize, body: &str) -> String {
     format!("{}{body}{}", "do\n".repeat(depth), "\nend".repeat(depth))
 }
