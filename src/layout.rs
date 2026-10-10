@@ -5,6 +5,7 @@ use crate::{
     layout_index::{LayoutIndex, Scope, ScopeKind},
     oracle::{AnalyzedSource, SourceToken},
 };
+use gaps::Join;
 
 /// Conservative mode retains every gap's empty/nonempty and same/different-line
 /// decisions. It only canonicalizes whitespace and indentation, capping blank
@@ -88,67 +89,6 @@ impl<'a> Builder<'a> {
             .clamp(1, self.max_newlines);
         Doc::concat((0..count).map(|_| Doc::Hard).collect())
     }
-    fn separator(&self, i: usize) -> Doc<'a> {
-        let gap = self.gap(i);
-        if gap.contains('\n') || self.line_comment(i - 1) {
-            return self.breaks(i);
-        }
-        if self.conservative {
-            return Doc::Text(if gap.is_empty() { "" } else { " " });
-        }
-        let left = self.text(i - 1);
-        let right = self.text(i);
-        if self.comment(i) {
-            return Doc::Text(" ");
-        }
-        // These adjacency decisions affect parsing. Keeping all angle and range
-        // gaps also protects generic lookahead and open-ended for ranges.
-        if right == "/" && matches!(left, "loop" | "while" | "for" | "break" | "continue") {
-            return Doc::Text(if gap.is_empty() { "" } else { " " });
-        }
-        if self.index.unary_sign(i - 1) || right == "[" {
-            return Doc::Text("");
-        }
-        if (right == "("
-            && (matches!(
-                self.tokens[i - 1].kind.as_str(),
-                "ident"
-                    | "number"
-                    | "string"
-                    | "multiline_string"
-                    | "backtick_string"
-                    | "atom"
-                    | "rparen"
-                    | "rbracket"
-                    | "rsquiggly"
-                    | "bang"
-            ) || left == "fn"
-                || self.comment(i - 1)))
-            || matches!(left, ".." | "/")
-            || right == ".."
-            || self.index.generic_angle(i - 1)
-            || self.index.generic_angle(i)
-        {
-            return Doc::Text(if gap.is_empty() { "" } else { " " });
-        }
-        if left == "," {
-            return Doc::Text(" ");
-        }
-        if matches!(right, "," | ";" | ")" | "]" | "}") || matches!(left, "(" | "[" | "{") {
-            return Doc::Text("");
-        }
-        if right == ":" || left == "." || right == "." {
-            return Doc::Text("");
-        }
-        if matches!(left, "?" | "!")
-            || matches!(right, "?" | "!")
-            || self.tokens[i].kind == "atom"
-            || self.tokens[i - 1].kind == "atom"
-        {
-            return Doc::Text(if gap.is_empty() { "" } else { " " });
-        }
-        Doc::Text(" ")
-    }
     fn sequence(&self, start: usize, end: usize) -> Doc<'a> {
         let mut parts = Vec::new();
         let mut segment = start;
@@ -159,7 +99,7 @@ impl<'a> Builder<'a> {
                     || (self.index.statement_start(i) && self.gap(i).contains('\n')))
             {
                 parts.push(self.expression_segment(segment, i));
-                parts.push(self.separator(i));
+                parts.push(self.whitespace(i, Join::Ordinary));
                 segment = i;
             }
             if let Some(scope) = self.index.scope(i, end) {
@@ -170,7 +110,7 @@ impl<'a> Builder<'a> {
                 if matches!(self.text(i), "," | ";") {
                     parts.push(self.expression_segment(segment, i + 1));
                     if i + 1 < end {
-                        parts.push(self.list_separator(i + 1));
+                        parts.push(self.whitespace(i + 1, Join::List));
                     }
                     segment = i + 1;
                 }
@@ -189,7 +129,7 @@ impl<'a> Builder<'a> {
         let mut i = start;
         while i < end {
             if i > start {
-                parts.push(self.expression_separator(i));
+                parts.push(self.whitespace(i, Join::Expression));
             }
             if let Some(scope) = self.index.scope(i, end) {
                 parts.push(self.scope_document(i, scope));
@@ -203,7 +143,7 @@ impl<'a> Builder<'a> {
                 // A trailing comment belongs to the operator's line, never to
                 // a new continuation. Its following newline remains mandatory.
                 while i < end && self.comment(i) && !self.gap(i).contains('\n') {
-                    parts.push(self.separator(i));
+                    parts.push(self.whitespace(i, Join::Ordinary));
                     parts.push(Doc::Text(self.text(i)));
                     i += 1;
                 }
@@ -222,7 +162,7 @@ impl<'a> Builder<'a> {
                 if let Some(close) = block_close {
                     Doc::concat(vec![
                         head.followed_by(Doc::concat(vec![
-                            self.expression_separator(body),
+                            self.whitespace(body, Join::Expression),
                             Doc::Text("do"),
                         ])),
                         self.block_tail(body, close),
@@ -230,7 +170,7 @@ impl<'a> Builder<'a> {
                 } else {
                     let leading =
                         if self.conservative || self.comment(body - 1) || self.comment(body) {
-                            self.separator(body)
+                            self.whitespace(body, Join::Ordinary)
                         } else {
                             Doc::Soft(" ")
                         };
@@ -248,7 +188,7 @@ impl<'a> Builder<'a> {
                     // arguments own their breaks and do not reserve columns in
                     // the generic list's independent fit decision.
                     let opening = delimiter.followed_by(Doc::concat(vec![
-                        self.separator(close + 1),
+                        self.whitespace(close + 1, Join::Ordinary),
                         Doc::Text(self.text(close + 1)),
                     ]));
                     self.delimited(close + 1, call_close, opening)
@@ -258,7 +198,7 @@ impl<'a> Builder<'a> {
             }
             ScopeKind::Match { arms } => Doc::concat(vec![
                 self.expression_segment(start, arms),
-                self.separator(arms),
+                self.whitespace(arms, Join::Ordinary),
                 self.sequence(arms, scope.end),
             ])
             .group(),
@@ -267,12 +207,12 @@ impl<'a> Builder<'a> {
                 multiline_body,
             } => {
                 let body = Doc::concat(vec![
-                    self.separator(arrow + 1),
+                    self.whitespace(arrow + 1, Join::Ordinary),
                     self.sequence(arrow + 1, scope.end),
                 ]);
                 Doc::concat(vec![
                     Doc::Text(self.text(start)),
-                    self.separator(start + 1),
+                    self.whitespace(start + 1, Join::Ordinary),
                     self.sequence(start + 1, arrow + 1),
                     if multiline_body { body.indent() } else { body },
                 ])
@@ -322,40 +262,6 @@ impl<'a> Builder<'a> {
             "comment" | "doc_comment" | "module_doc"
         )
     }
-    fn expression_separator(&self, i: usize) -> Doc<'a> {
-        if !self.conservative
-            && self.gap(i).contains('\n')
-            && !self.index.statement_start(i)
-            && !self.index.statement_boundary(i)
-            && !self.index.arm_start(i)
-            && !self.comment(i - 1)
-            && !self.comment(i)
-            && self.gap(i).bytes().filter(|&b| b == b'\n').count() == 1
-        {
-            let left = self.text(i - 1);
-            let right = self.text(i);
-            return Doc::Soft(
-                if matches!(left, "(" | "[" | "{") || matches!(right, ")" | "]" | "}") {
-                    ""
-                } else {
-                    " "
-                },
-            );
-        }
-        self.separator(i)
-    }
-    fn list_separator(&self, i: usize) -> Doc<'a> {
-        if !self.conservative
-            && self.text(i - 1) == ","
-            && !self.comment(i - 1)
-            && !self.comment(i)
-            && self.gap(i).bytes().filter(|&b| b == b'\n').count() <= 1
-        {
-            Doc::Soft(" ")
-        } else {
-            self.expression_separator(i)
-        }
-    }
     fn binary(&self, i: usize) -> bool {
         i > 0
             && !self.index.unary_sign(i)
@@ -400,15 +306,18 @@ impl<'a> Builder<'a> {
     }
     fn block_tail(&self, open: usize, close: usize) -> Doc<'a> {
         if close == open + 1 {
-            return Doc::concat(vec![self.separator(close), Doc::Text(self.text(close))]);
+            return Doc::concat(vec![
+                self.whitespace(close, Join::Ordinary),
+                Doc::Text(self.text(close)),
+            ]);
         }
         Doc::concat(vec![
             Doc::concat(vec![
-                self.separator(open + 1),
+                self.whitespace(open + 1, Join::Ordinary),
                 self.sequence(open + 1, close),
             ])
             .indent(),
-            self.separator(close),
+            self.whitespace(close, Join::Ordinary),
             Doc::Text(self.text(close)),
         ])
     }
@@ -420,12 +329,12 @@ impl<'a> Builder<'a> {
             return opening.followed_by(Doc::Text(self.text(close)));
         }
         let leading = if self.conservative || self.comment(open + 1) || self.comment(open) {
-            self.separator(open + 1)
+            self.whitespace(open + 1, Join::Ordinary)
         } else {
             Doc::Soft("")
         };
         let trailing = if self.conservative || self.comment(close - 1) {
-            self.separator(close)
+            self.whitespace(close, Join::Ordinary)
         } else {
             Doc::Soft("")
         };
@@ -436,5 +345,146 @@ impl<'a> Builder<'a> {
             trailing,
             self.text(close),
         )
+    }
+}
+
+/// Gap decisions. Traversal states the intention of each gap between adjacent
+/// tokens; this module alone decides which original newline, comment,
+/// parser-sensitive adjacency, conservative-layout and blank-line rules
+/// override it, and returns the whitespace document for that gap.
+mod gaps {
+    use super::Builder;
+    use crate::document::Doc;
+
+    /// The caller's semantic intention for the gap before a token.
+    #[derive(Clone, Copy)]
+    pub(super) enum Join {
+        /// Keep the original line structure, otherwise join by syntax adjacency.
+        Ordinary,
+        /// Join tokens within one expression; a single newline may soften.
+        Expression,
+        /// Follow a `,` or `;` that ends a list item or explicit statement.
+        List,
+    }
+
+    /// Original facts about one gap, gathered together for every decision.
+    struct Gap<'a> {
+        left: &'a str,
+        right: &'a str,
+        /// Whether the source separated the tokens at all.
+        spaced: bool,
+        /// Source newlines, counted before the blank-line limit.
+        newlines: usize,
+        left_comment: bool,
+        right_comment: bool,
+    }
+
+    impl<'a> Builder<'a> {
+        /// The whitespace document for the gap before token `i`.
+        pub(super) fn whitespace(&self, i: usize, join: Join) -> Doc<'a> {
+            let text = self.gap(i);
+            let gap = Gap {
+                left: self.text(i - 1),
+                right: self.text(i),
+                spaced: !text.is_empty(),
+                newlines: text.bytes().filter(|&b| b == b'\n').count(),
+                left_comment: self.comment(i - 1),
+                right_comment: self.comment(i),
+            };
+            match self.soft(i, &gap, join) {
+                Some(flat) => Doc::Soft(flat),
+                None => self.ordinary(i, &gap),
+            }
+        }
+
+        // The flat text of a soft break, when the intention may reflow this
+        // gap. Rules are ordered by priority.
+        fn soft(&self, i: usize, gap: &Gap<'a>, join: Join) -> Option<&'static str> {
+            // Conservative layout retains every original gap decision, and a
+            // comment keeps its line and attachment.
+            if self.conservative || gap.left_comment || gap.right_comment {
+                return None;
+            }
+            match join {
+                Join::List if gap.left == "," && gap.newlines <= 1 => Some(" "),
+                // One newline within an expression may soften unless it borders
+                // a statement or starts a match arm. Enclosure edges stay adjacent.
+                Join::List | Join::Expression
+                    if gap.newlines == 1
+                        && !self.index.statement_start(i)
+                        && !self.index.statement_boundary(i)
+                        && !self.index.arm_start(i) =>
+                {
+                    let edge =
+                        matches!(gap.left, "(" | "[" | "{") || matches!(gap.right, ")" | "]" | "}");
+                    Some(if edge { "" } else { " " })
+                }
+                Join::Ordinary | Join::List | Join::Expression => None,
+            }
+        }
+
+        // Original line breaks under the blank-line limit, otherwise spacing
+        // by syntax adjacency.
+        fn ordinary(&self, i: usize, gap: &Gap<'a>) -> Doc<'a> {
+            if gap.newlines > 0 || self.line_comment(i - 1) {
+                return self.breaks(i);
+            }
+            // The source's empty or nonempty adjacency, as one space.
+            let original = if gap.spaced { " " } else { "" };
+            if self.conservative {
+                return Doc::Text(original);
+            }
+            let (left, right) = (gap.left, gap.right);
+            if gap.right_comment {
+                return Doc::Text(" ");
+            }
+            // These adjacency decisions affect parsing. Keeping all angle and range
+            // gaps also protects generic lookahead and open-ended for ranges.
+            if right == "/" && matches!(left, "loop" | "while" | "for" | "break" | "continue") {
+                return Doc::Text(original);
+            }
+            if self.index.unary_sign(i - 1) || right == "[" {
+                return Doc::Text("");
+            }
+            if (right == "("
+                && (matches!(
+                    self.tokens[i - 1].kind.as_str(),
+                    "ident"
+                        | "number"
+                        | "string"
+                        | "multiline_string"
+                        | "backtick_string"
+                        | "atom"
+                        | "rparen"
+                        | "rbracket"
+                        | "rsquiggly"
+                        | "bang"
+                ) || left == "fn"
+                    || gap.left_comment))
+                || matches!(left, ".." | "/")
+                || right == ".."
+                || self.index.generic_angle(i - 1)
+                || self.index.generic_angle(i)
+            {
+                return Doc::Text(original);
+            }
+            if left == "," {
+                return Doc::Text(" ");
+            }
+            if matches!(right, "," | ";" | ")" | "]" | "}") || matches!(left, "(" | "[" | "{") {
+                return Doc::Text("");
+            }
+            if right == ":" || left == "." || right == "." {
+                return Doc::Text("");
+            }
+            if matches!(left, "?" | "!")
+                || matches!(right, "?" | "!")
+                || self.tokens[i].kind == "atom"
+                || self.tokens[i - 1].kind == "atom"
+            {
+                return Doc::Text(original);
+            }
+            Doc::Text(" ")
+        }
     }
 }
