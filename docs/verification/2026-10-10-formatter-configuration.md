@@ -282,6 +282,30 @@ Zed's server archive `dist/revofmt-lsp-0.3.0.tar.gz` was built locally (6,065
 bytes, SHA-256 `d433efb55b37a5d5e28560c1f817afe1557db5acb64ff0f4e293c166e388b6bf`).
 Repeated packaging gives identical bytes.
 
+### Fixes after the cross-repository review
+
+A final review of the adapters found three defects and one docs inaccuracy. Each
+adapter has one more commit on `formatter-configuration`, again unpushed. The
+ranges above end at the earlier heads; these are the current heads.
+
+| Adapter | Head | Change |
+| --- | --- | --- |
+| `revofmt.nvim` | `54c223a` (`fa1ac47..54c223a`, 3 commits, 9 files) | `setup` keeps unknown keys and `tbl_extend` with a nil entry does not remove one, so `setup({ path = ... })` could be sent as `--stdin-filepath` for an unnamed buffer. The path is now assigned after the process config is built. A new test fails first and now passes; a false fixture comment in `tests/run.lua` is corrected |
+| `revofmt-vscode` | `1013ee9` (`2c87ee9..1013ee9`, 2 commits, 14 files) | README says the nearest ancestor directory that has a `revofmt.toml` applies, not the nearest parent directory. Documentation only |
+| `revofmt-zed` | `ac04b3c` (`8868a8b..ac04b3c`, 4 commits, 19 files) | The CLI's stderr already starts with `revofmt: `, so Zed showed `revofmt: revofmt: ...`. The server now sends a diagnostic that starts with `revofmt:` unchanged and prefixes any other. Tests cover both branches and the real CLI messages; the README sentence and the `main.cjs` digest in `src/server_checksums.rs` are updated |
+
+Against the published 0.2.0 binary, `scripts/verify` passes in all three:
+Neovim 39 tests with 0 failures (40 with `REVOFMT_CURRENT_SYNTAX=1`) and 15 of 15
+installer tests; VS Code 69 tests, 68 pass, 1 skipped; Zed Python 19 pass, Node
+123 tests with 122 pass and 1 skipped, Rust 13 pass, and
+`scripts/package-server --check` for 0.3.0.
+
+Zed's server code changed, so the local archive `dist/revofmt-lsp-0.3.0.tar.gz`
+was rebuilt (6,132 bytes). Its SHA-256 is now
+`172dcad508e050e72b55c4ed2147f68ba884d090b6c84233de33cf80a4f882c1`; the digest
+above is superseded. Repeated packaging gives identical bytes. The archive is
+still not uploaded.
+
 ### Adapter limits
 
 - When this section was written, nothing in the three adapter repositories had

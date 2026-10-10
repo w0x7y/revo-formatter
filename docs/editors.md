@@ -63,9 +63,9 @@ the current buffer. Save formatting stays opt-in.
   discovery and the editor settings apply.
 - **Minimum version.** Adapters on this contract require revofmt 0.2.0 or
   later. An older CLI does not know `--prefer-config`, so it exits with code 2
-  (`unrecognized option: --prefer-config`) and nothing is formatted. Zed shows
-  exit-2 stderr, such as that message or a malformed `revofmt.toml`, as an
-  error message.
+  (`unrecognized option: --prefer-config`) and nothing is formatted. Each
+  adapter reports the CLI's stderr, such as that message or a malformed
+  `revofmt.toml`, as an error; Zed does so with `window/showMessage`.
 - **Ranges.** The indent style is `space` or `tab`. Indentation is 1 through 8
   columns per level; a tab counts as that many columns when fitting lines. The
   line width is 20 through 240 columns and is a soft target. Blank lines are

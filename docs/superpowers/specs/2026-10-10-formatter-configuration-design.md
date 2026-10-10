@@ -128,8 +128,10 @@ For each input, discovery starts at the canonical form of the deepest existing
 ancestor of the input's parent directory and walks its ancestors to the
 filesystem root. The first `revofmt.toml` found applies to that input. A
 `--stdin-filepath` naming directories that do not exist is therefore judged by
-the real location of the nearest directory that does, never by a lexical walk
-through `..` components or symbolic links.
+the real location of the nearest directory that does: missing trailing
+directories are skipped to the deepest existing ancestor, whose real location is
+used. A dangling symbolic link, or a `..` after a missing component, is still
+walked as written.
 
 Results, including "no configuration" and errors, are cached per directory for
 one CLI run, so a configuration file is read and parsed at most once. In
@@ -213,7 +215,8 @@ revofmt --prefer-config [--stdin-filepath P] --indent-width N --line-width N --i
   ranges.
 - `--stdin-filepath` is sent only for real files:
   - Neovim: `buftype` is empty and `nvim_buf_get_name` is nonempty, expanded to
-    an absolute path.
+    an absolute path. Buffer names that start with a URI scheme and `://` are
+    not sent.
   - VS Code: `document.uri.scheme === 'file'`, using `fsPath`.
   - Zed: a `file:` document URI, converted with `fileURLToPath`.
 - Untitled and non-file buffers omit `--stdin-filepath` and use adapter
