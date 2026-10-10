@@ -28,7 +28,7 @@ Source positions can change, including positions observable by procedural macros
 | [src/lib.rs](../src/lib.rs) | Public option validation, preferred/conservative choice and fixed-point bound |
 | [src/oracle.rs](../src/oracle.rs) | Source admission, owned FFI results, validated metadata, paired analyzed source and candidate preservation |
 | [src/layout_index.rs](../src/layout_index.rs) | Indexed source facts, complete lexical envelopes and range-bounded typed scopes |
-| [src/layout.rs](../src/layout.rs) | Token spacing and document construction within the owning scope |
+| [src/layout.rs](../src/layout.rs) | Scope traversal, document construction and, in its private gap module, every whitespace decision between tokens |
 | [src/document.rs](../src/document.rs) | Cached flat widths, groups, fill continuations, enclosures, suffix fitting and rendering |
 | [src/cli.rs](../src/cli.rs) | Bounded input, modes, per-input options from configuration, diagnostics, batch prevalidation and atomic file replacement |
 | [src/config.rs](../src/config.rs) | Configuration discovery, bounded reading, TOML parsing and per-input option resolution |
@@ -74,6 +74,18 @@ Flat operator chunks share one continuation indentation level; nested constructs
 own their own levels. Scope traversal must still visit punctuation or suffixes
 following a closing delimiter.
 
+Within layout, a private gap module owns every whitespace decision between
+adjacent tokens. Traversal states only the gap's intention: an ordinary join, an
+expression join, a list join, an enclosure opening or closing, an
+expression-body join or an operand continuation. The module gathers the gap's
+original facts once and decides which rule wins: conservative layout, comment
+attachment, the original newline count, statement and match-arm starts, and
+parser-sensitive call, generic, label and range adjacency. It is the only place
+that builds soft breaks or line breaks between tokens. Original newline counts
+decide softening before the blank-line limit caps line breaks, so a list gap
+capped to one break can compact on a later fixed-point pass. Operator chunk
+discovery and scope traversal stay outside the module.
+
 `Doc::followed_by` owns grouping and suffix measurement. `Doc::enclosed` owns list
 fitting, allowing contents to fit after an independently rendered opener. A
 generic call attaches its opening parenthesis to the generic list without
@@ -82,8 +94,13 @@ keep short generic lists and short argument lists compact independently.
 
 ## Changing the formatter
 
-Keep syntax facts in the collector/index, scope traversal and spacing in layout,
-document fitting in the renderer, and preservation in `AnalyzedSource`.
+Keep syntax facts in the collector/index, scope traversal in layout, gap
+decisions in layout's gap module, document fitting in the renderer, and
+preservation in `AnalyzedSource`. A whitespace rule belongs in the gap module
+under the intention it serves; traversal code states that intention rather than
+building breaks. Gap regressions belong in the gap matrix in
+`src/tests/formatting.rs`, which checks each row's preferred candidate as well
+as its fixed point, so conservative fallback cannot hide a changed decision.
 Exercise a changed interface through real callers instead of adding public test
 hooks. The [contributor instructions](../AGENTS.md) identify test locations and
 completion checks. The [admission policy](verification/input-limits.md) is the
