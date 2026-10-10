@@ -55,12 +55,12 @@ fn invoke_in(dir: Option<&Path>, args: &[&OsStr], stdin: &str) -> Output {
         command.current_dir(dir);
     }
     let mut child = command.spawn().unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    // A process that rejects its arguments can exit before reading stdin, which
+    // closes the pipe under this write. Its status and stderr are asserted instead.
+    match child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        result => result.unwrap(),
+    }
     child.wait_with_output().unwrap()
 }
 
