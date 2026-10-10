@@ -293,7 +293,8 @@ mod write_batch {
         pub(super) fn prepare(paths: &[PathBuf], resolver: &mut Resolver) -> Result<Self, String> {
             let mut replacements = Vec::new();
             for path in paths {
-                let permissions = regular_file_permissions(path)?;
+                let permissions = regular_file_permissions(path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
                 let (source, formatted) = read_and_format(path, resolver, None)?;
                 if source != formatted {
                     replacements.push(Replacement {
@@ -327,14 +328,12 @@ mod write_batch {
         }
     }
 
+    /// The permissions of a regular file. The error does not name the path; each
+    /// caller adds it exactly once.
     fn regular_file_permissions(path: &Path) -> Result<Permissions, String> {
-        let metadata =
-            fs::symlink_metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
         if !metadata.file_type().is_file() {
-            return Err(format!(
-                "{}: --write requires a regular file and rejects symlinks",
-                path.display()
-            ));
+            return Err("--write requires a regular file and rejects symlinks".into());
         }
         Ok(metadata.permissions())
     }
@@ -399,12 +398,17 @@ mod write_batch {
         use super::*;
         use crate::config::LayoutFlags;
 
+        static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
+
         struct Scratch(PathBuf);
 
         impl Scratch {
             fn new() -> Self {
-                let directory = std::env::temp_dir()
-                    .join(format!("revofmt-write-batch-{}", std::process::id()));
+                let directory = std::env::temp_dir().join(format!(
+                    "revofmt-write-batch-{}-{}",
+                    std::process::id(),
+                    NEXT_SCRATCH.fetch_add(1, Ordering::Relaxed)
+                ));
                 fs::create_dir(&directory).unwrap();
                 Self(directory)
             }
@@ -425,8 +429,8 @@ mod write_batch {
             names
         }
 
-        #[test]
-        fn a_destination_that_stops_being_a_file_fails_after_earlier_replacements() {
+        /// Two unformatted files in a fresh directory, prepared as one batch.
+        fn prepared() -> (Scratch, PathBuf, PathBuf, PreparedBatch) {
             let scratch = Scratch::new();
             let first = scratch.0.join("first.rv");
             let second = scratch.0.join("second.rv");
@@ -435,10 +439,16 @@ mod write_batch {
             let mut resolver = Resolver::new(LayoutFlags::default(), false, false);
             let batch =
                 PreparedBatch::prepare(&[first.clone(), second.clone()], &mut resolver).unwrap();
+            // Preparation modifies nothing and creates no replacement file.
             assert_eq!(fs::read(&first).unwrap(), b"let x=1");
             assert_eq!(fs::read(&second).unwrap(), b"let y=2");
             assert_eq!(names(&scratch.0), ["first.rv", "second.rv"]);
+            (scratch, first, second, batch)
+        }
 
+        #[test]
+        fn a_destination_that_stops_being_a_file_fails_after_earlier_replacements() {
+            let (scratch, first, second, batch) = prepared();
             let moved = scratch.0.join("moved.rv");
             fs::rename(&second, &moved).unwrap();
             fs::create_dir(&second).unwrap();
@@ -446,12 +456,10 @@ mod write_batch {
 
             assert_eq!(fs::read(&first).unwrap(), b"let x = 1\n");
             assert_eq!(fs::read(&moved).unwrap(), b"let y=2");
-            // The recheck's own diagnostic already names the path, which the
-            // batch prefixes again.
             assert_eq!(
                 error,
                 format!(
-                    "{second}: {second}: --write requires a regular file and rejects symlinks\n\
+                    "{second}: --write requires a regular file and rejects symlinks\n\
                      Writes completed before this failure:\n  {first}",
                     first = first.display(),
                     second = second.display(),
@@ -459,6 +467,58 @@ mod write_batch {
             );
             assert_eq!(names(&scratch.0), ["first.rv", "moved.rv", "second.rv"]);
             assert!(names(&second).is_empty());
+        }
+
+        #[test]
+        fn a_destination_removed_after_preparation_fails_after_earlier_replacements() {
+            let (scratch, first, second, batch) = prepared();
+            fs::remove_file(&second).unwrap();
+            let error = batch.apply().unwrap_err();
+
+            assert_eq!(fs::read(&first).unwrap(), b"let x = 1\n");
+            assert_eq!(
+                error,
+                format!(
+                    "{second}: No such file or directory (os error 2)\n\
+                     Writes completed before this failure:\n  {first}",
+                    first = first.display(),
+                    second = second.display(),
+                )
+            );
+            assert_eq!(names(&scratch.0), ["first.rv"]);
+        }
+
+        #[test]
+        fn preparation_names_the_failing_path_once_and_replaces_nothing() {
+            let scratch = Scratch::new();
+            let file = scratch.0.join("file.rv");
+            let missing = scratch.0.join("missing.rv");
+            let directory = scratch.0.join("directory.rv");
+            fs::write(&file, "let x=1").unwrap();
+            fs::create_dir(&directory).unwrap();
+            let mut resolver = Resolver::new(LayoutFlags::default(), false, false);
+            let mut prepare = |second: &Path| {
+                PreparedBatch::prepare(&[file.clone(), second.to_path_buf()], &mut resolver)
+                    .err()
+                    .unwrap()
+            };
+
+            assert_eq!(
+                prepare(&missing),
+                format!(
+                    "{}: No such file or directory (os error 2)",
+                    missing.display()
+                )
+            );
+            assert_eq!(
+                prepare(&directory),
+                format!(
+                    "{}: --write requires a regular file and rejects symlinks",
+                    directory.display()
+                )
+            );
+            assert_eq!(fs::read(&file).unwrap(), b"let x=1");
+            assert_eq!(names(&scratch.0), ["directory.rv", "file.rv"]);
         }
     }
 }
