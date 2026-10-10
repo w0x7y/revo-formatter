@@ -2,11 +2,9 @@ use crate::config::{LayoutFlags, Resolver};
 use revofmt::{IndentStyle, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
 use std::{
     ffi::OsString,
-    fs::{self, File, OpenOptions, Permissions},
+    fs::File,
     io::{self, Read, Write},
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
 };
 
 const HELP: &str = "revofmt [OPTIONS] [FILE]
@@ -195,7 +193,12 @@ fn execute(args: &Arguments) -> Result<u8, String> {
             }
             Ok(if failed { 2 } else { u8::from(changed) })
         }
-        Mode::Write => write_files(&args.inputs, &mut resolver),
+        Mode::Write => {
+            // Validate the entire batch, including each input's configuration,
+            // before any replacement.
+            write_batch::PreparedBatch::prepare(&args.inputs, &mut resolver)?.apply()?;
+            Ok(0)
+        }
     }
 }
 
@@ -254,137 +257,169 @@ fn read_source(reader: impl Read) -> io::Result<String> {
     String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-fn regular_file_permissions(path: &Path) -> Result<Permissions, String> {
-    let metadata =
-        fs::symlink_metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    if !metadata.file_type().is_file() {
-        return Err(format!(
-            "{}: --write requires a regular file and rejects symlinks",
-            path.display()
-        ));
-    }
-    Ok(metadata.permissions())
-}
+/// The complete `--write` lifecycle: prepare, then apply.
+///
+/// Preparation validates the whole batch and modifies nothing. Only a prepared
+/// batch can be applied, and applying consumes it. Each replacement is atomic on
+/// its own; the batch is not a transaction, so a later failure leaves earlier
+/// replacements in place and the error names them.
+mod write_batch {
+    use super::read_and_format;
+    use crate::config::Resolver;
+    use std::{
+        fs::{self, File, OpenOptions, Permissions},
+        io::{self, Write},
+        os::unix::fs::OpenOptionsExt,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
-struct Replacement {
-    path: PathBuf,
-    source: String,
-    permissions: Permissions,
-}
-
-fn write_files(inputs: &[PathBuf], resolver: &mut Resolver) -> Result<u8, String> {
-    // Validate the entire batch before any replacement, including each input's
-    // configuration. Later I/O failures can still leave earlier replacements in
-    // place, so retain their paths.
-    let mut replacements = Vec::new();
-    for path in inputs {
-        let permissions = regular_file_permissions(path)?;
-        let (source, formatted) = read_and_format(path, resolver, None)?;
-        if source != formatted {
-            replacements.push(Replacement {
-                path: path.clone(),
-                source: formatted,
-                permissions,
-            });
-        }
+    /// Changed files in input order, each with its formatted text and the
+    /// permissions captured during preparation.
+    pub(super) struct PreparedBatch {
+        replacements: Vec<Replacement>,
     }
-    let mut completed: Vec<PathBuf> = Vec::new();
-    for replacement in replacements {
-        if let Err(error) = atomic_replace(&replacement) {
-            let mut message = format!("{}: {error}", replacement.path.display());
-            if !completed.is_empty() {
-                message.push_str("\nWrites completed before this failure:");
-                for path in completed {
-                    message.push_str(&format!("\n  {}", path.display()));
+
+    struct Replacement {
+        path: PathBuf,
+        source: String,
+        permissions: Permissions,
+    }
+
+    impl PreparedBatch {
+        /// Check every path in order: it is a regular file, it reads, its options
+        /// resolve and it formats. Unchanged files are skipped. Fails with the
+        /// first problem, before any file is replaced.
+        pub(super) fn prepare(paths: &[PathBuf], resolver: &mut Resolver) -> Result<Self, String> {
+            let mut replacements = Vec::new();
+            for path in paths {
+                let permissions = regular_file_permissions(path)?;
+                let (source, formatted) = read_and_format(path, resolver, None)?;
+                if source != formatted {
+                    replacements.push(Replacement {
+                        path: path.clone(),
+                        source: formatted,
+                        permissions,
+                    });
                 }
             }
-            return Err(message);
+            Ok(Self { replacements })
         }
-        completed.push(replacement.path);
-    }
-    Ok(0)
-}
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-
-fn create_temporary(destination: &Path) -> io::Result<(PathBuf, File)> {
-    let directory = destination.parent().unwrap_or_else(|| Path::new("."));
-    for _ in 0..100 {
-        let path = directory.join(format!(
-            ".revofmt-{}-{}.tmp",
-            std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-        {
-            Ok(file) => return Ok((path, file)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
+        /// Replace each changed file in input order. A failure names the failing
+        /// path and the paths already replaced, which stay replaced.
+        pub(super) fn apply(self) -> Result<(), String> {
+            let mut completed: Vec<PathBuf> = Vec::new();
+            for replacement in self.replacements {
+                if let Err(error) = atomic_replace(&replacement) {
+                    let mut message = format!("{}: {error}", replacement.path.display());
+                    if !completed.is_empty() {
+                        message.push_str("\nWrites completed before this failure:");
+                        for path in completed {
+                            message.push_str(&format!("\n  {}", path.display()));
+                        }
+                    }
+                    return Err(message);
+                }
+                completed.push(replacement.path);
+            }
+            Ok(())
         }
     }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not create a unique temporary file",
-    ))
-}
 
-fn atomic_replace(replacement: &Replacement) -> Result<(), String> {
-    let (temporary, mut file) =
-        create_temporary(&replacement.path).map_err(|error| error.to_string())?;
-    let result = (|| {
-        file.write_all(replacement.source.as_bytes())
-            .map_err(|error| error.to_string())?;
-        file.set_permissions(replacement.permissions.clone())
-            .map_err(|error| error.to_string())?;
-        file.flush()
-            .and_then(|()| file.sync_all())
-            .map_err(|error| error.to_string())?;
-        drop(file);
-        // Check the type again in case it changed during batch preparation.
-        regular_file_permissions(&replacement.path)?;
-        fs::rename(&temporary, &replacement.path).map_err(|error| error.to_string())
-    })();
-    if let Err(error) = result {
-        return match fs::remove_file(&temporary) {
-            Ok(()) => Err(error),
-            Err(cleanup) => Err(format!(
-                "{error}; could not remove temporary file {}: {cleanup}",
-                temporary.display()
-            )),
-        };
+    fn regular_file_permissions(path: &Path) -> Result<Permissions, String> {
+        let metadata =
+            fs::symlink_metadata(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if !metadata.file_type().is_file() {
+            return Err(format!(
+                "{}: --write requires a regular file and rejects symlinks",
+                path.display()
+            ));
+        }
+        Ok(metadata.permissions())
     }
-    Ok(())
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-    #[test]
-    fn replacement_cleans_temporary_when_destination_is_no_longer_regular() {
-        let directory = std::env::temp_dir().join(format!(
-            "revofmt-replacement-{}-{}",
-            std::process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&directory).unwrap();
-        let destination = directory.join("source.rv");
-        fs::create_dir(&destination).unwrap();
-        let result = atomic_replace(&Replacement {
-            path: destination.clone(),
-            source: "let x = 1\n".into(),
-            permissions: fs::metadata(&destination).unwrap().permissions(),
-        });
-        let remaining = fs::read_dir(&directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect::<Vec<_>>();
-        fs::remove_dir_all(&directory).unwrap();
-        assert!(result.unwrap_err().contains("regular file"));
-        assert_eq!(remaining, vec![destination]);
+    fn create_temporary(destination: &Path) -> io::Result<(PathBuf, File)> {
+        let directory = destination.parent().unwrap_or_else(|| Path::new("."));
+        for _ in 0..100 {
+            let path = directory.join(format!(
+                ".revofmt-{}-{}.tmp",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+            {
+                Ok(file) => return Ok((path, file)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not create a unique temporary file",
+        ))
+    }
+
+    fn atomic_replace(replacement: &Replacement) -> Result<(), String> {
+        let (temporary, mut file) =
+            create_temporary(&replacement.path).map_err(|error| error.to_string())?;
+        let result = (|| {
+            file.write_all(replacement.source.as_bytes())
+                .map_err(|error| error.to_string())?;
+            file.set_permissions(replacement.permissions.clone())
+                .map_err(|error| error.to_string())?;
+            file.flush()
+                .and_then(|()| file.sync_all())
+                .map_err(|error| error.to_string())?;
+            drop(file);
+            // Check the type again in case it changed during batch preparation.
+            regular_file_permissions(&replacement.path)?;
+            fs::rename(&temporary, &replacement.path).map_err(|error| error.to_string())
+        })();
+        if let Err(error) = result {
+            return match fs::remove_file(&temporary) {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(format!(
+                    "{error}; could not remove temporary file {}: {cleanup}",
+                    temporary.display()
+                )),
+            };
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn replacement_cleans_temporary_when_destination_is_no_longer_regular() {
+            let directory = std::env::temp_dir().join(format!(
+                "revofmt-replacement-{}-{}",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&directory).unwrap();
+            let destination = directory.join("source.rv");
+            fs::create_dir(&destination).unwrap();
+            let result = atomic_replace(&Replacement {
+                path: destination.clone(),
+                source: "let x = 1\n".into(),
+                permissions: fs::metadata(&destination).unwrap().permissions(),
+            });
+            let remaining = fs::read_dir(&directory)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            fs::remove_dir_all(&directory).unwrap();
+            assert!(result.unwrap_err().contains("regular file"));
+            assert_eq!(remaining, vec![destination]);
+        }
     }
 }
