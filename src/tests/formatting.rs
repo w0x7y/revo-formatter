@@ -1,5 +1,5 @@
 use super::assert_preserved_and_idempotent;
-use crate::{FormatError, FormatOptions, IndentStyle, format};
+use crate::{FormatError, FormatOptions, IndentStyle, format, layout, oracle};
 
 fn check(source: &str, expected: &str, options: FormatOptions) {
     let output = format(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
@@ -262,18 +262,6 @@ fn operator_continuations_pack_available_columns() {
 }
 
 #[test]
-fn short_expression_newlines_can_compact() {
-    for (source, expected) in [
-        ("let x=1+\n2", "let x = 1 + 2\n"),
-        ("return {\ny,\nx\n}", "return {y, x}\n"),
-        ("f(\n1,\n2\n)", "f(1, 2)\n"),
-        ("let x=(\n1+2\n)", "let x = (1 + 2)\n"),
-    ] {
-        check(source, expected, FormatOptions::default());
-    }
-}
-
-#[test]
 fn expression_function_bodies_are_visually_nested() {
     check("fn f(x)\nx+1", "fn f(x) x + 1\n", FormatOptions::default());
     check(
@@ -288,23 +276,6 @@ fn expression_function_bodies_are_visually_nested() {
         "fn f(x) # body\nx+1",
         "fn f(x) # body\n  x + 1\n",
         FormatOptions::default(),
-    );
-}
-
-#[test]
-fn operator_comments_remain_on_their_original_line() {
-    check(
-        "let x=1+ # note\n2",
-        "let x = 1 + # note\n  2\n",
-        FormatOptions::default(),
-    );
-    check(
-        "let x=first_argument+ # note\nsecond_argument",
-        "let x = first_argument + # note\n  second_argument\n",
-        FormatOptions {
-            line_width: 24,
-            ..FormatOptions::default()
-        },
     );
 }
 
@@ -351,15 +322,6 @@ fn header_width_includes_the_do_keyword() {
             line_width: 24,
             ..FormatOptions::default()
         },
-    );
-}
-
-#[test]
-fn list_comments_remain_attached_to_the_preceding_item() {
-    check(
-        "return {\ny, # note\nx\n}",
-        "return {\n  y, # note\n  x\n}\n",
-        FormatOptions::default(),
     );
 }
 
@@ -1166,36 +1128,198 @@ fn blank_lines(max_blank_lines: usize) -> FormatOptions {
     }
 }
 
-#[test]
-fn blank_line_limit_caps_statement_and_block_gaps() {
-    let statements = "let a=1\n\n\n\nlet b=2";
-    check(statements, "let a = 1\nlet b = 2\n", blank_lines(0));
-    check(statements, "let a = 1\n\nlet b = 2\n", blank_lines(1));
-    check(statements, "let a = 1\n\n\nlet b = 2\n", blank_lines(2));
-    let block = "do\n\n\nfoo()\n\n\n\nbar()\n\nend";
-    check(block, "do\n  foo()\n  bar()\nend\n", blank_lines(0));
-    check(block, "do\n\n  foo()\n\n  bar()\n\nend\n", blank_lines(1));
-    check(
-        block,
-        "do\n\n\n  foo()\n\n\n  bar()\n\nend\n",
-        blank_lines(2),
-    );
+/// The preferred candidate a gap matrix row requires for its source.
+#[derive(Clone, Copy)]
+enum Preferred {
+    /// The expected output, which preserves the source.
+    Output,
+    /// An earlier pass that preserves the source; a later pass compacts it.
+    Pass(&'static str),
+    /// A candidate that fails preservation, so the output is conservative.
+    Rejected,
 }
 
+// Each row checks the preferred candidate directly, so conservative fallback
+// cannot hide a changed gap decision, and then the complete fixed point.
 #[test]
-fn blank_line_limit_applies_to_lists_comments_and_crlf() {
+fn gaps_follow_their_intention_comments_and_blank_line_limit() {
+    use Preferred::{Output, Pass, Rejected};
+    let defaults = FormatOptions::default();
+    let narrow = FormatOptions {
+        line_width: 24,
+        ..defaults
+    };
+    let statements = "let a=1\n\n\n\nlet b=2";
+    let block = "do\n\n\nfoo()\n\n\n\nbar()\n\nend";
     let list = "consume(first,\n\n\nsecond)";
-    // With no blank line left, the fixed-point pass recompacts the list.
-    check(list, "consume(first, second)\n", blank_lines(0));
-    check(
-        list,
-        "consume(\n  first,\n\n\n  second\n)\n",
-        blank_lines(2),
-    );
     let comment = "foo() # note\n\n\n\nbar()";
-    check(comment, "foo() # note\nbar()\n", blank_lines(0));
-    check(comment, "foo() # note\n\n\nbar()\n", blank_lines(2));
     let crlf = "let a=1\r\n\r\n\r\n\r\nlet b=2";
-    check(crlf, "let a = 1\r\nlet b = 2\r\n", blank_lines(0));
-    check(crlf, "let a = 1\r\n\r\n\r\nlet b = 2\r\n", blank_lines(2));
+    for (source, options, expected, preferred) in [
+        // A single newline inside an expression, list or enclosure compacts.
+        ("let x=1+\n2", defaults, "let x = 1 + 2\n", Output),
+        ("return {\ny,\nx\n}", defaults, "return {y, x}\n", Output),
+        ("f(\n1,\n2\n)", defaults, "f(1, 2)\n", Output),
+        ("let x=(\n1+2\n)", defaults, "let x = (1 + 2)\n", Output),
+        ("let x=\n1", defaults, "let x = 1\n", Output),
+        (
+            "if x\ndo\nf()\nend",
+            defaults,
+            "if x do\n  f()\nend\n",
+            Output,
+        ),
+        ("let x=\n\n1", defaults, "let x =\n\n1\n", Output),
+        // A comment keeps its line and its attachment to the preceding token.
+        (
+            "let x=1+ # note\n2",
+            defaults,
+            "let x = 1 + # note\n  2\n",
+            Output,
+        ),
+        (
+            "let x=first_argument+ # note\nsecond_argument",
+            narrow,
+            "let x = first_argument + # note\n  second_argument\n",
+            Output,
+        ),
+        (
+            "let x=1+ ## note ## 2",
+            defaults,
+            "let x = 1 + ## note ## 2\n",
+            Output,
+        ),
+        (
+            "let x=1+ ## note ##\n2",
+            defaults,
+            "let x = 1 + ## note ##\n  2\n",
+            Output,
+        ),
+        (
+            "return {\ny, # note\nx\n}",
+            defaults,
+            "return {\n  y, # note\n  x\n}\n",
+            Output,
+        ),
+        (
+            "f( # note\n1,\n2\n)",
+            defaults,
+            "f( # note\n  1,\n  2\n)\n",
+            Output,
+        ),
+        (
+            "f(\n1,\n2 # note\n)",
+            defaults,
+            "f(\n  1,\n  2 # note\n)\n",
+            Output,
+        ),
+        ("f(## note ## 1)", defaults, "f( ## note ## 1)\n", Output),
+        ("f(1 ## note ##)", defaults, "f(1 ## note ##)\n", Output),
+        (
+            "fn f(x) ## body ## x+1",
+            defaults,
+            "fn f(x) ## body ## x + 1\n",
+            Output,
+        ),
+        (
+            "type T={\n#* a *# x: number,\ny: number\n}",
+            defaults,
+            "type T = {\n  #* a *# x: number,\n  y: number\n}\n",
+            Output,
+        ),
+        (
+            "#!\nmodule m\n!#\nf(\n1,\n2\n)",
+            defaults,
+            "#!\nmodule m\n!#\nf(1, 2)\n",
+            Output,
+        ),
+        // Blank lines are capped; original newline counts still decide.
+        (statements, blank_lines(0), "let a = 1\nlet b = 2\n", Output),
+        (
+            statements,
+            blank_lines(1),
+            "let a = 1\n\nlet b = 2\n",
+            Output,
+        ),
+        (
+            statements,
+            blank_lines(2),
+            "let a = 1\n\n\nlet b = 2\n",
+            Output,
+        ),
+        (block, blank_lines(0), "do\n  foo()\n  bar()\nend\n", Output),
+        (
+            block,
+            blank_lines(1),
+            "do\n\n  foo()\n\n  bar()\n\nend\n",
+            Output,
+        ),
+        (
+            block,
+            blank_lines(2),
+            "do\n\n\n  foo()\n\n\n  bar()\n\nend\n",
+            Output,
+        ),
+        // With no blank line left, the fixed-point pass recompacts the list.
+        (
+            list,
+            blank_lines(0),
+            "consume(first, second)\n",
+            Pass("consume(\n  first,\n  second\n)\n"),
+        ),
+        (
+            list,
+            blank_lines(2),
+            "consume(\n  first,\n\n\n  second\n)\n",
+            Output,
+        ),
+        ("f(1,\n\n2)", defaults, "f(\n  1,\n\n  2\n)\n", Output),
+        (comment, blank_lines(0), "foo() # note\nbar()\n", Output),
+        (comment, blank_lines(2), "foo() # note\n\n\nbar()\n", Output),
+        // CRLF, tabs and conservative layout.
+        (crlf, blank_lines(0), "let a = 1\r\nlet b = 2\r\n", Output),
+        (
+            crlf,
+            blank_lines(2),
+            "let a = 1\r\n\r\n\r\nlet b = 2\r\n",
+            Output,
+        ),
+        ("f(\r\n1,\r\n2\r\n)", defaults, "f(1, 2)\r\n", Output),
+        (
+            "f(\r\n1, # note\r\n2\r\n)",
+            defaults,
+            "f(\r\n  1, # note\r\n  2\r\n)\r\n",
+            Output,
+        ),
+        (
+            "do\nf(\n1,\n2\n)\nend",
+            tabs(2, 80),
+            "do\n\tf(1, 2)\nend\n",
+            Output,
+        ),
+        (
+            "do\nlet x=1 .field\nf(\n1,\n2\n)\nend",
+            defaults,
+            "do\n  let x=1 .field\n  f(\n    1,\n    2\n  )\nend\n",
+            Rejected,
+        ),
+        (
+            "do\nlet x=1 .field\nf(1,\n\n\n2)\nend",
+            blank_lines(0),
+            "do\n  let x=1 .field\n  f(1,\n    2)\nend\n",
+            Rejected,
+        ),
+    ] {
+        let analysis = oracle::analyze(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+        let candidate = layout::layout(&analysis, &options, false);
+        match preferred {
+            Output => assert_eq!(candidate, expected, "source: {source:?}"),
+            Pass(pass) => assert_eq!(candidate, pass, "source: {source:?}"),
+            Rejected => {}
+        }
+        assert_eq!(
+            analysis.preserves(&candidate).unwrap(),
+            !matches!(preferred, Rejected),
+            "source: {source:?}"
+        );
+        check(source, expected, options);
+    }
 }
