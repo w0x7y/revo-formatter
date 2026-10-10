@@ -89,6 +89,7 @@ revofmt --indent-width 4 example.rv      # default: 2 columns per level
 revofmt --indent-style tab example.rv    # default: space
 revofmt --line-width 24 example.rv       # default: 80 columns
 revofmt --max-blank-lines 2 example.rv   # default: 1
+revofmt --no-config example.rv           # ignore revofmt.toml
 revofmt -- --example.rv                  # a filename starting with a dash
 revofmt --help
 ```
@@ -118,7 +119,25 @@ an error. diagnostics go to stderr. invalid syntax produces no formatted output.
 
 `--write` validates every input before changing any file. each replacement is
 atomic; the whole batch isn't. it rejects stdin, symlinks and nonregular files.
-there's no directory discovery or config file yet.
+
+### configuration
+
+put a `revofmt.toml` in your project. every key is optional:
+
+```toml
+indent_width = 4
+line_width = 100
+indent_style = "tab"      # "space" or "tab"
+max_blank_lines = 2
+```
+
+each file uses the nearest `revofmt.toml` in its directory or a parent.
+flags override the file unless you pass `--prefer-config`, which ignores them
+so an editor agrees with `revofmt --check` in CI. stdin looks for the file
+only when you pass `--stdin-filepath path/to/file.rv`. `--no-config` skips
+the search. a malformed file is an error, and `--write` changes nothing in
+that case. the [configuration reference](docs/formatter.md#configuration)
+has the details.
 
 ## editors
 

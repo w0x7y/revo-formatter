@@ -68,6 +68,11 @@ independently of that body.
 **Continuation**:
 The remainder of an expression placed below its initial line. Flat operators share one indentation level; actual nested constructs introduce their own levels.
 
+**Project configuration**:
+A `revofmt.toml` file found in an input's directory or its nearest ancestor. It
+supplies layout options for inputs beneath it. Command-line flags override it
+unless `--prefer-config` is given.
+
 ## Editor integration
 
 **Adapter**:

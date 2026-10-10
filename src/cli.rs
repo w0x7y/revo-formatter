@@ -1,3 +1,4 @@
+use crate::config::{Layout, Resolver};
 use revofmt::{FormatOptions, IndentStyle, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
 use std::{
     ffi::OsString,
@@ -21,10 +22,15 @@ Options:
   --indent-style S    Indent with space or tab (default space)
   --line-width N      Target display columns (20 through 240; default 80)
   --max-blank-lines N Consecutive blank lines kept (0 through 8; default 1)
+  --stdin-filepath P  Find revofmt.toml from P when reading stdin
+  --prefer-config     Ignore layout flags when revofmt.toml applies
+  --no-config         Do not search for revofmt.toml
   --help              Print this help
   --version           Print formatter version and pinned syntax revision
   --                  Treat following arguments as file paths
 
+Layout flags override revofmt.toml, found in each input's directory or its
+nearest parent. A tab counts as --indent-width columns.
 Print mode accepts one input. --check and --write are mutually exclusive.
 Write mode rejects stdin and symlinks. Exit codes: 0 success, 1 check
 differences, 2 usage/I/O/syntax/validation error. Diagnostics go to stderr.
@@ -39,7 +45,10 @@ enum Mode {
 
 struct Arguments {
     mode: Mode,
-    options: FormatOptions,
+    flags: Layout,
+    prefer_config: bool,
+    no_config: bool,
+    stdin_filepath: Option<PathBuf>,
     inputs: Vec<PathBuf>,
 }
 
@@ -52,7 +61,10 @@ enum Command {
 fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut args = args.into_iter();
     let mut mode = Mode::Print;
-    let mut options = FormatOptions::default();
+    let mut flags = Layout::default();
+    let mut prefer_config = false;
+    let mut no_config = false;
+    let mut stdin_filepath = None;
     let mut inputs = Vec::new();
     let mut literal_paths = false;
     while let Some(arg) = args.next() {
@@ -85,29 +97,37 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
                     .and_then(|s| s.parse::<usize>().ok())
                     .ok_or_else(|| format!("{name} requires a positive integer"))?;
                 if name == "--indent-width" {
-                    options.indent_width = value;
+                    flags.indent_width = Some(value);
                 } else {
-                    options.line_width = value;
+                    flags.line_width = Some(value);
                 }
-                options.validate().map_err(|error| error.to_string())?;
+                validate_flags(flags)?;
             }
             Some("--indent-style") => {
-                options.indent_style = match args.next().as_deref().and_then(|v| v.to_str()) {
+                flags.indent_style = Some(match args.next().as_deref().and_then(|v| v.to_str()) {
                     Some("space") => IndentStyle::Space,
                     Some("tab") => IndentStyle::Tab,
                     _ => return Err("--indent-style requires space or tab".into()),
-                };
-                options.validate().map_err(|error| error.to_string())?;
+                });
+                validate_flags(flags)?;
             }
             Some("--max-blank-lines") => {
-                options.max_blank_lines = args
-                    .next()
-                    .as_deref()
-                    .and_then(|v| v.to_str())
-                    .and_then(|v| v.parse::<usize>().ok())
-                    .ok_or("--max-blank-lines requires a non-negative integer")?;
-                options.validate().map_err(|error| error.to_string())?;
+                flags.max_blank_lines = Some(
+                    args.next()
+                        .as_deref()
+                        .and_then(|v| v.to_str())
+                        .and_then(|v| v.parse::<usize>().ok())
+                        .ok_or("--max-blank-lines requires a non-negative integer")?,
+                );
+                validate_flags(flags)?;
             }
+            Some("--stdin-filepath") => {
+                stdin_filepath = Some(PathBuf::from(
+                    args.next().ok_or("--stdin-filepath requires a path")?,
+                ));
+            }
+            Some("--prefer-config") => prefer_config = true,
+            Some("--no-config") => no_config = true,
             _ if arg != "-" && arg.to_string_lossy().starts_with('-') => {
                 return Err(format!("unrecognized option: {}", arg.to_string_lossy()));
             }
@@ -120,14 +140,30 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     if inputs.is_empty() {
         inputs.push(PathBuf::from("-"));
     }
+    if stdin_filepath.is_some() && inputs.iter().any(|p| p != Path::new("-")) {
+        return Err("--stdin-filepath requires stdin input".into());
+    }
     if inputs.len() > 1 && (mode == Mode::Print || inputs.iter().any(|p| p == Path::new("-"))) {
         return Err("print mode and stdin accept exactly one input".into());
     }
     Ok(Command::Format(Arguments {
         mode,
-        options,
+        flags,
+        prefer_config,
+        no_config,
+        stdin_filepath,
         inputs,
     }))
+}
+
+/// Reject out-of-range flag values during parsing, even when `--prefer-config`
+/// later ignores them. The resolver prefixes errors with the configuration
+/// path when a file applies, so only the file can cause such an error there.
+fn validate_flags(flags: Layout) -> Result<(), String> {
+    flags
+        .over(FormatOptions::default())
+        .validate()
+        .map_err(|error| error.to_string())
 }
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<u8, String> {
@@ -137,32 +173,39 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<u8, String> {
             "revofmt {} (Revo {UPSTREAM_REVISION})\n",
             env!("CARGO_PKG_VERSION")
         )),
-        Command::Format(args) => match args.mode {
-            Mode::Print => {
-                let path = &args.inputs[0];
-                let (_, formatted) = read_and_format(path, &args.options)?;
-                print_output(&formatted)
-            }
-            Mode::Check => {
-                let mut changed = false;
-                let mut failed = false;
-                for path in &args.inputs {
-                    match read_and_format(path, &args.options) {
-                        Ok((source, formatted)) if source != formatted => {
-                            eprintln!("{}: requires formatting", input_name(path));
-                            changed = true;
-                        }
-                        Ok(_) => {}
-                        Err(message) => {
-                            eprintln!("revofmt: {message}");
-                            failed = true;
-                        }
+        Command::Format(args) => execute(&args),
+    }
+}
+
+fn execute(args: &Arguments) -> Result<u8, String> {
+    // One resolver per run, so each configuration file is read at most once.
+    let mut resolver = Resolver::new(args.flags, args.prefer_config, !args.no_config);
+    let stdin_filepath = args.stdin_filepath.as_deref();
+    match args.mode {
+        Mode::Print => {
+            let path = &args.inputs[0];
+            let (_, formatted) = read_and_format(path, &mut resolver, stdin_filepath)?;
+            print_output(&formatted)
+        }
+        Mode::Check => {
+            let mut changed = false;
+            let mut failed = false;
+            for path in &args.inputs {
+                match read_and_format(path, &mut resolver, stdin_filepath) {
+                    Ok((source, formatted)) if source != formatted => {
+                        eprintln!("{}: requires formatting", input_name(path));
+                        changed = true;
+                    }
+                    Ok(_) => {}
+                    Err(message) => {
+                        eprintln!("revofmt: {message}");
+                        failed = true;
                     }
                 }
-                Ok(if failed { 2 } else { u8::from(changed) })
             }
-            Mode::Write => write_files(&args),
-        },
+            Ok(if failed { 2 } else { u8::from(changed) })
+        }
+        Mode::Write => write_files(&args.inputs, &mut resolver),
     }
 }
 
@@ -183,15 +226,25 @@ fn input_name(path: &Path) -> String {
     }
 }
 
-fn read_and_format(path: &Path, options: &FormatOptions) -> Result<(String, String), String> {
-    let source = if path == Path::new("-") {
+/// Read one input, resolve its options and format it. Stdin discovers
+/// configuration only from `stdin_filepath`; files discover from their own path.
+fn read_and_format(
+    path: &Path,
+    resolver: &mut Resolver,
+    stdin_filepath: Option<&Path>,
+) -> Result<(String, String), String> {
+    let stdin = path == Path::new("-");
+    let source = if stdin {
         read_source(io::stdin().lock())
     } else {
         File::open(path).and_then(read_source)
     }
     .map_err(|error| format!("{}: {error}", input_name(path)))?;
+    let options = resolver
+        .options(if stdin { stdin_filepath } else { Some(path) })
+        .map_err(|error| format!("{}: {error}", input_name(path)))?;
     let formatted =
-        format(&source, options).map_err(|error| format!("{}: {error}", input_name(path)))?;
+        format(&source, &options).map_err(|error| format!("{}: {error}", input_name(path)))?;
     Ok((source, formatted))
 }
 
@@ -229,13 +282,14 @@ struct Replacement {
     permissions: Permissions,
 }
 
-fn write_files(args: &Arguments) -> Result<u8, String> {
-    // Validate the entire batch before any replacement. Later I/O failures can
-    // still leave earlier replacements in place, so retain their paths.
+fn write_files(inputs: &[PathBuf], resolver: &mut Resolver) -> Result<u8, String> {
+    // Validate the entire batch before any replacement, including each input's
+    // configuration. Later I/O failures can still leave earlier replacements in
+    // place, so retain their paths.
     let mut replacements = Vec::new();
-    for path in &args.inputs {
+    for path in inputs {
         let permissions = regular_file_permissions(path)?;
-        let (source, formatted) = read_and_format(path, &args.options)?;
+        let (source, formatted) = read_and_format(path, resolver, None)?;
         if source != formatted {
             replacements.push(Replacement {
                 path: path.clone(),

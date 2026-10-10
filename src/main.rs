@@ -1,6 +1,4 @@
 mod cli;
-// Task 7 wires the resolver into the CLI and removes this allowance.
-#[allow(dead_code)]
 mod config;
 
 fn main() -> std::process::ExitCode {

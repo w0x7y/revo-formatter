@@ -21,6 +21,12 @@ target/release/revofmt --write first.rv second.rv
 target/release/revofmt --indent-width 4 --line-width 24 example.rv
 target/release/revofmt --indent-style tab --max-blank-lines 2 example.rv
 
+# Use the revofmt.toml found from the file, or from a stdin path.
+target/release/revofmt --check src/example.rv
+printf 'let x=1' | target/release/revofmt --stdin-filepath src/example.rv
+target/release/revofmt --prefer-config --indent-width 4 src/example.rv
+target/release/revofmt --no-config src/example.rv
+
 # A filename starting with a dash follows --.
 target/release/revofmt -- --example.rv
 
@@ -69,7 +75,7 @@ unbreakable expressions or comments can exceed the target.
 Print mode accepts one input. `--check` also accepts stdin, including when
 no input is specified. `--write` requires file paths and rejects stdin,
 symlinks, and nonregular files. `--check` and `--write` are mutually exclusive.
-There is no directory discovery or configuration file support in this version.
+See [Configuration](#configuration) for `revofmt.toml`.
 
 The CLI and library apply conservative input limits before parsing: 262,144
 UTF-8 source bytes, 4,096 expanded lexer tokens, and 32 combined delimiter and
@@ -106,6 +112,79 @@ if cleanup itself fails.
 Multiple file writes are not a single transaction. A later replacement or
 other I/O failure can leave earlier writes completed. The diagnostic lists
 those completed paths so the result can be inspected.
+
+## Configuration
+
+A `revofmt.toml` file sets layout options for the inputs beneath it. Every key
+is optional and matches a `FormatOptions` field:
+
+```toml
+indent_width = 4
+line_width = 100
+indent_style = "tab"      # "space" or "tab"
+max_blank_lines = 2
+```
+
+Keys use the same ranges as the flags. In tab mode `indent_width` is the tab's
+display width when fitting lines. These are errors that name the file: an
+unknown key, a value of the wrong type (including a negative integer), an
+`indent_style` other than `space` or `tab`, and a value outside its range. A
+file written for a newer release therefore fails on an older formatter.
+
+The formatter reads at most 64 KiB, which must be UTF-8. A `revofmt.toml` entry
+that exists but is not a readable regular file is an error. A symbolic link to
+a regular file is followed. Deeply nested TOML is an error, not a crash.
+
+### Discovery
+
+For each input, discovery starts at the canonical form of the input's parent
+directory and walks up to the filesystem root. The first `revofmt.toml` found
+applies to that input. A relative input resolves against the working
+directory, and a path through a symbolic link is judged by its real location.
+If the parent directory cannot be canonicalized, for example a
+`--stdin-filepath` naming a directory that does not exist, discovery uses the
+absolute path as written.
+
+Each directory is searched once per run, including when the result is an
+error, so a configuration file is read and parsed at most once. In `--check`
+and `--write` each file uses its own nearest configuration, so one batch can
+span subprojects with different settings.
+
+### Precedence
+
+| Situation | Sources, highest first |
+| --- | --- |
+| Default | flags, then `revofmt.toml`, then built-in defaults, per key |
+| `--prefer-config` and a configuration applies | `revofmt.toml`, then built-in defaults; all layout flags ignored |
+| `--prefer-config` and no configuration applies | flags, then built-in defaults |
+| `--no-config` | flags, then built-in defaults; `--prefer-config` has no effect |
+
+The layout flags are `--indent-width`, `--line-width`, `--indent-style` and
+`--max-blank-lines`. Under `--prefer-config`, keys absent from the file use
+built-in defaults rather than flag values. An editor that passes
+`--prefer-config` therefore agrees with a flagless `revofmt --check` in CI.
+Flag values are validated while arguments are parsed, so an out-of-range flag
+is a usage error even when `--prefer-config` would ignore it. Precedence is
+resolved per input: in a batch, files with a configuration and files without
+one can resolve differently.
+
+### Stdin
+
+Stdin performs no discovery unless `--stdin-filepath PATH` is given. The path
+need not exist, a relative path resolves against the working directory, and it
+is used only to find the configuration. Diagnostics still name the input
+`stdin`. `--stdin-filepath` without stdin input, including when file paths are
+given, is a usage error with exit code 2.
+
+### Errors
+
+A configuration error is an error for each input it applies to, with exit code
+2. The diagnostic names the input and the configuration path. In `--check` the
+error is reported and the remaining inputs are still checked; the error takes
+precedence over exit code 1. In `--write`, resolving every input's
+configuration is part of batch prevalidation, so a malformed configuration for
+any input prevents every write. Print mode prints nothing. Exit codes, print
+mode and atomic replacement are otherwise unchanged.
 
 ## Rust library usage
 

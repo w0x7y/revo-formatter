@@ -12,7 +12,17 @@ static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 struct TempDir(PathBuf);
 impl TempDir {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
+        // Inputs discover revofmt.toml in every ancestor, so a stray file above
+        // the temporary directory would change unrelated results.
+        let root = fs::canonicalize(std::env::temp_dir()).unwrap();
+        for ancestor in root.ancestors() {
+            assert!(
+                !ancestor.join("revofmt.toml").exists(),
+                "{} would configure every test input",
+                ancestor.join("revofmt.toml").display()
+            );
+        }
+        let path = root.join(format!(
             "revofmt-cli-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
@@ -20,8 +30,10 @@ impl TempDir {
         fs::create_dir(&path).unwrap();
         Self(path)
     }
+    /// Write `source` to `name`, creating missing parent directories.
     fn file(&self, name: &str, source: &str) -> PathBuf {
         let path = self.0.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, source).unwrap();
         path
     }
@@ -32,14 +44,17 @@ impl Drop for TempDir {
     }
 }
 
-fn invoke(args: &[&OsStr], stdin: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_revofmt"))
+fn invoke_in(dir: Option<&Path>, args: &[&OsStr], stdin: &str) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_revofmt"));
+    command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::piped());
+    if let Some(dir) = dir {
+        command.current_dir(dir);
+    }
+    let mut child = command.spawn().unwrap();
     child
         .stdin
         .take()
@@ -49,8 +64,21 @@ fn invoke(args: &[&OsStr], stdin: &str) -> Output {
     child.wait_with_output().unwrap()
 }
 
+fn invoke(args: &[&OsStr], stdin: &str) -> Output {
+    invoke_in(None, args, stdin)
+}
+
 fn run(args: &[&str], stdin: &str) -> Output {
     invoke(&args.iter().map(OsStr::new).collect::<Vec<_>>(), stdin)
+}
+
+/// Run with `dir` as the working directory.
+fn run_in(dir: &Path, args: &[&str], stdin: &str) -> Output {
+    invoke_in(
+        Some(dir),
+        &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+        stdin,
+    )
 }
 
 fn status(output: &Output, code: i32) {
@@ -206,6 +234,9 @@ fn help_version_and_option_overrides() {
         "--indent-style",
         "--line-width",
         "--max-blank-lines",
+        "--stdin-filepath",
+        "--prefer-config",
+        "--no-config",
         "--",
     ] {
         assert!(help.contains(option));
@@ -307,6 +338,8 @@ fn rejects_invalid_arguments_without_source() {
         vec!["--max-blank-lines"],
         vec!["--max-blank-lines", "9"],
         vec!["--max-blank-lines", "-1"],
+        vec!["--prefer-config", "--indent-width", "0"],
+        vec!["--no-config", "--line-width", "19"],
         vec!["--unknown"],
         vec!["--write"],
         vec!["--write", "-"],
@@ -618,4 +651,292 @@ fn later_io_failure_reports_completed_paths_and_leaves_no_temporary_files() {
     assert_eq!(fs::read(&second).unwrap(), b"let y=2");
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
     assert_eq!(fs::read_dir(&blocked_dir).unwrap().count(), 1);
+}
+
+const TAB_CONFIG: &str = "indent_style = \"tab\"\nline_width = 24\n";
+const CALL_SOURCE: &str = "do\nconsume(first_argument, second)\nend";
+const BLANK_LINES_SOURCE: &str = "let a=1\n\n\nlet b=2";
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn configuration_precedence_rows() {
+    let dir = TempDir::new();
+    dir.file("revofmt.toml", TAB_CONFIG);
+    dir.file("a.rv", CALL_SOURCE);
+    dir.file("b.rv", BLANK_LINES_SOURCE);
+    let narrow_tabs = "do\n\tconsume(\n\t\tfirst_argument,\n\t\tsecond\n\t)\nend\n";
+    let wide_tabs = "do\n\tconsume(first_argument, second)\nend\n";
+    let wide_spaces = "do\n  consume(first_argument, second)\nend\n";
+    for (flags, expected) in [
+        (vec![], narrow_tabs),
+        (vec!["--line-width", "80"], wide_tabs),
+        (
+            vec![
+                "--prefer-config",
+                "--line-width",
+                "80",
+                "--indent-style",
+                "space",
+            ],
+            narrow_tabs,
+        ),
+        (vec!["--no-config"], wide_spaces),
+        (
+            vec![
+                "--no-config",
+                "--prefer-config",
+                "--indent-style",
+                "tab",
+                "--line-width",
+                "80",
+            ],
+            wide_tabs,
+        ),
+    ] {
+        let mut args = flags.clone();
+        args.push("a.rv");
+        let output = run_in(&dir.0, &args, "");
+        status(&output, 0);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "{flags:?}"
+        );
+        assert!(output.stderr.is_empty(), "{flags:?}");
+    }
+    // Under --prefer-config the file does not set max_blank_lines, so the
+    // built-in default fills it rather than the flag.
+    let output = run_in(
+        &dir.0,
+        &["--prefer-config", "--max-blank-lines", "0", "b.rv"],
+        "",
+    );
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let a = 1\n\nlet b = 2\n");
+    let output = run_in(&dir.0, &["--max-blank-lines", "0", "b.rv"], "");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let a = 1\nlet b = 2\n");
+}
+
+#[test]
+fn stdin_filepath_discovers_from_nonexistent_and_relative_paths() {
+    let dir = TempDir::new();
+    dir.file("revofmt.toml", TAB_CONFIG);
+    let source = "do\nfoo()\nend";
+    let tabbed = b"do\n\tfoo()\nend\n";
+    let missing = dir.0.join("missing").join("new.rv");
+    let output = invoke(
+        &[OsStr::new("--stdin-filepath"), missing.as_os_str()],
+        source,
+    );
+    status(&output, 0);
+    assert_eq!(output.stdout, tabbed);
+
+    let output = run_in(&dir.0, &["--stdin-filepath", "sub/x.rv"], source);
+    status(&output, 0);
+    assert_eq!(output.stdout, tabbed);
+
+    let present = dir.0.join("x.rv");
+    let args = [
+        OsStr::new("--check"),
+        OsStr::new("--stdin-filepath"),
+        present.as_os_str(),
+    ];
+    let output = invoke(&args, "do\n\tfoo()\nend\n");
+    status(&output, 0);
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    status(&invoke(&args, source), 1);
+
+    // Without the flag stdin performs no discovery, whatever the directory.
+    let output = run_in(&dir.0, &[], source);
+    status(&output, 0);
+    assert_eq!(output.stdout, b"do\n  foo()\nend\n");
+}
+
+#[test]
+fn stdin_filepath_requires_stdin() {
+    for args in [
+        vec!["--stdin-filepath", "x.rv", "a.rv"],
+        vec!["--stdin-filepath", "x.rv", "-", "a.rv"],
+        vec!["--check", "--stdin-filepath", "x.rv", "a.rv"],
+        vec!["--stdin-filepath"],
+    ] {
+        let output = run(&args, "");
+        status(&output, 2);
+        assert!(output.stdout.is_empty(), "{args:?}");
+        assert!(!output.stderr.is_empty(), "{args:?}");
+    }
+    assert!(stderr(&run(&["--stdin-filepath"], "")).contains("--stdin-filepath requires a path"));
+    assert!(
+        stderr(&run(&["--stdin-filepath", "x.rv", "a.rv"], ""))
+            .contains("--stdin-filepath requires stdin input")
+    );
+    // An explicit stdin marker is still stdin.
+    status(&run(&["--stdin-filepath", "x.rv", "-"], "let x=1"), 0);
+}
+
+#[test]
+fn stdin_configuration_errors_name_stdin_and_the_configuration() {
+    let dir = TempDir::new();
+    let config = dir.file("revofmt.toml", "indnet_width = 4\n");
+    let anchor = dir.0.join("x.rv");
+    let output = invoke(
+        &[OsStr::new("--stdin-filepath"), anchor.as_os_str()],
+        "let x=1",
+    );
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+    assert!(stderr(&output).contains("stdin"));
+    // --no-config never reads the malformed file.
+    let output = invoke(
+        &[
+            OsStr::new("--no-config"),
+            OsStr::new("--stdin-filepath"),
+            anchor.as_os_str(),
+        ],
+        "let x=1",
+    );
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let x = 1\n");
+}
+
+#[test]
+fn batches_resolve_each_input_separately() {
+    let dir = TempDir::new();
+    dir.file("one/revofmt.toml", "indent_style = \"tab\"\n");
+    dir.file("two/revofmt.toml", "max_blank_lines = 0\n");
+    let first = dir.file("one/a.rv", "do\nfoo()\nend");
+    let second = dir.file("two/b.rv", BLANK_LINES_SOURCE);
+    let output = invoke(
+        &[OsStr::new("--write"), first.as_os_str(), second.as_os_str()],
+        "",
+    );
+    status(&output, 0);
+    assert!(output.stdout.is_empty());
+    assert_eq!(fs::read(&first).unwrap(), b"do\n\tfoo()\nend\n");
+    assert_eq!(fs::read(&second).unwrap(), b"let a = 1\nlet b = 2\n");
+    let output = invoke(
+        &[OsStr::new("--check"), first.as_os_str(), second.as_os_str()],
+        "",
+    );
+    status(&output, 0);
+}
+
+#[test]
+fn malformed_configuration_prevents_every_write() {
+    let dir = TempDir::new();
+    let good = dir.file("ok/a.rv", "let x=1");
+    let config = dir.file("bad/revofmt.toml", "indnet_width = 4\n");
+    let bad = dir.file("bad/b.rv", "let y=2");
+    let output = invoke(
+        &[OsStr::new("--write"), good.as_os_str(), bad.as_os_str()],
+        "",
+    );
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+    contains_path(&output, &bad);
+    assert_eq!(fs::read(&good).unwrap(), b"let x=1");
+    assert_eq!(fs::read(&bad).unwrap(), b"let y=2");
+    // The same order with the malformed input first fails identically.
+    let output = invoke(
+        &[OsStr::new("--write"), bad.as_os_str(), good.as_os_str()],
+        "",
+    );
+    status(&output, 2);
+    assert_eq!(fs::read(&good).unwrap(), b"let x=1");
+    // Print mode reports the error without output.
+    let output = invoke(&[bad.as_os_str()], "");
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+}
+
+#[test]
+fn check_continues_past_configuration_errors() {
+    let dir = TempDir::new();
+    let good = dir.file("ok/a.rv", "let x=1");
+    let config = dir.file("bad/revofmt.toml", "indnet_width = 4\n");
+    let bad = dir.file("bad/b.rv", "let y = 2\n");
+    let output = invoke(
+        &[OsStr::new("--check"), bad.as_os_str(), good.as_os_str()],
+        "",
+    );
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+    let diagnostics = stderr(&output);
+    assert!(
+        diagnostics.contains(&format!("{}: requires formatting", good.display())),
+        "{diagnostics}"
+    );
+    assert_eq!(fs::read(&good).unwrap(), b"let x=1");
+}
+
+#[test]
+fn relative_inputs_resolve_against_the_working_directory() {
+    let dir = TempDir::new();
+    dir.file("revofmt.toml", "indent_style = \"tab\"\n");
+    dir.file("a.rv", "do\n\tfoo()\nend\n");
+    let output = run_in(&dir.0, &["--check", "a.rv"], "");
+    status(&output, 0);
+    assert!(output.stderr.is_empty());
+    let output = run_in(&dir.0, &["--check", "--no-config", "a.rv"], "");
+    status(&output, 1);
+    // A nested working directory finds the file in its parent.
+    dir.file("nested/b.rv", "do\nfoo()\nend");
+    let output = run_in(&dir.0.join("nested"), &["b.rv"], "");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"do\n\tfoo()\nend\n");
+}
+
+#[test]
+fn overridden_invalid_config_values() {
+    let dir = TempDir::new();
+    let config = dir.file("revofmt.toml", "indent_width = 20\n");
+    let source = dir.file("a.rv", "let x = 1\n");
+    let path = source.as_os_str();
+    let output = invoke(&[OsStr::new("--indent-width"), OsStr::new("2"), path], "");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let x = 1\n");
+    let output = invoke(&[path], "");
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+    let output = invoke(
+        &[
+            OsStr::new("--prefer-config"),
+            OsStr::new("--indent-width"),
+            OsStr::new("2"),
+            path,
+        ],
+        "",
+    );
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    contains_path(&output, &config);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_directories_use_the_canonical_location() {
+    let dir = TempDir::new();
+    dir.file("project/revofmt.toml", "indent_style = \"tab\"\n");
+    dir.file("outside/a.rv", "do\nfoo()\nend");
+    let link = dir.0.join("project").join("link");
+    std::os::unix::fs::symlink(dir.0.join("outside"), &link).unwrap();
+    let through_link = link.join("a.rv");
+    let output = invoke(&[through_link.as_os_str()], "");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"do\n  foo()\nend\n");
+    // The real location sits below no configuration, and the link is only a path.
+    let direct = dir.0.join("outside").join("a.rv");
+    let output = invoke(&[direct.as_os_str()], "");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"do\n  foo()\nend\n");
 }
