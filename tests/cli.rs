@@ -282,6 +282,17 @@ fn indent_style_and_blank_line_flags() {
     assert_eq!(output.stdout, b"let a = 1\n\n\nlet b = 2\n");
 }
 
+const RANGE_ERROR: &str =
+    "indent width must be 1..=8, line width 20..=240 and max blank lines 0..=8";
+
+/// Run `args` on stdin source and require exactly this diagnostic and no output.
+fn flag_error(args: &[&str], message: &str) {
+    let output = run(args, "let x=1");
+    status(&output, 2);
+    assert!(output.stdout.is_empty(), "{args:?}");
+    assert_eq!(stderr(&output), format!("revofmt: {message}\n"), "{args:?}");
+}
+
 #[test]
 fn layout_flag_errors_name_the_flag() {
     for (args, message) in [
@@ -305,19 +316,192 @@ fn layout_flag_errors_name_the_flag() {
             vec!["--max-blank-lines", "many"],
             "--max-blank-lines requires a non-negative integer",
         ),
+        (vec!["--indent-width"], "--indent-width requires a value"),
+        (
+            vec!["--indent-width", "-1"],
+            "--indent-width requires a positive integer",
+        ),
+        (vec!["--line-width"], "--line-width requires a value"),
+        (
+            vec!["--line-width", "invalid"],
+            "--line-width requires a positive integer",
+        ),
+        (vec!["--indent-width", "0"], RANGE_ERROR),
+        (vec!["--indent-width", "9"], RANGE_ERROR),
+        (vec!["--line-width", "19"], RANGE_ERROR),
+        (vec!["--line-width", "241"], RANGE_ERROR),
+        (vec!["--max-blank-lines", "9"], RANGE_ERROR),
     ] {
-        let output = run(&args, "let x=1");
+        flag_error(&args, message);
+    }
+}
+
+#[test]
+fn layout_flags_are_validated_where_they_appear() {
+    for (args, message) in [
+        // An invalid value is rejected immediately, so a later valid repetition
+        // of the same flag, or of any other, cannot rescue it.
+        (
+            vec!["--indent-width", "9", "--indent-width", "2"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--indent-width", "0", "--indent-width", "4"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--line-width", "19", "--line-width", "80"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--max-blank-lines", "9", "--max-blank-lines", "1"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--max-blank-lines", "9", "--line-width", "80"],
+            RANGE_ERROR,
+        ),
+        // A valid value does not protect a later invalid repetition.
+        (
+            vec!["--indent-width", "2", "--indent-width", "9"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--line-width", "80", "--line-width", "241"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--max-blank-lines", "1", "--max-blank-lines", "9"],
+            RANGE_ERROR,
+        ),
+        (
+            vec![
+                "--indent-style",
+                "tab",
+                "--indent-width",
+                "4",
+                "--line-width",
+                "19",
+            ],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--indent-style", "tabs", "--indent-style", "tab"],
+            "--indent-style requires space or tab",
+        ),
+        (
+            vec!["--indent-style", "tab", "--indent-style", "tabs"],
+            "--indent-style requires space or tab",
+        ),
+        // --prefer-config and --no-config never defer or waive validation,
+        // whichever side of the flag they appear on.
+        (vec!["--prefer-config", "--line-width", "241"], RANGE_ERROR),
+        (
+            vec!["--prefer-config", "--max-blank-lines", "9"],
+            RANGE_ERROR,
+        ),
+        (vec!["--line-width", "19", "--prefer-config"], RANGE_ERROR),
+        (
+            vec!["--prefer-config", "--indent-style", "tabs"],
+            "--indent-style requires space or tab",
+        ),
+        (
+            vec!["--no-config", "--prefer-config", "--indent-width", "9"],
+            RANGE_ERROR,
+        ),
+        // Invalid values are reported before a later --help or --version.
+        (vec!["--indent-width", "9", "--help"], RANGE_ERROR),
+        (vec!["--line-width", "241", "--version"], RANGE_ERROR),
+        (
+            vec!["--line-width", "invalid", "--help"],
+            "--line-width requires a positive integer",
+        ),
+        (
+            vec!["--indent-width", "-1", "--help"],
+            "--indent-width requires a positive integer",
+        ),
+        (
+            vec!["--max-blank-lines", "many", "--version"],
+            "--max-blank-lines requires a non-negative integer",
+        ),
+        (
+            vec!["--indent-style", "tabs", "--help"],
+            "--indent-style requires space or tab",
+        ),
+        // Validation happens in argument order relative to other usage errors.
+        (
+            vec!["--indent-width", "9", "--check", "--write", "a.rv"],
+            RANGE_ERROR,
+        ),
+        (
+            vec!["--check", "--write", "--indent-width", "9", "a.rv"],
+            "--check and --write are mutually exclusive",
+        ),
+        (vec!["--indent-width", "9", "--unknown"], RANGE_ERROR),
+        (
+            vec!["--unknown", "--indent-width", "9"],
+            "unrecognized option: --unknown",
+        ),
+        (vec!["--indent-width", "9", "--write"], RANGE_ERROR),
+        (
+            vec!["--stdin-filepath", "x.rv", "--indent-width", "9", "a.rv"],
+            RANGE_ERROR,
+        ),
+        // Arguments after the separator are paths, not flags.
+        (vec!["--indent-width", "9", "--", "a.rv"], RANGE_ERROR),
+    ] {
+        flag_error(&args, message);
+    }
+}
+
+#[test]
+fn flag_errors_are_not_attributed_to_a_configuration() {
+    let dir = TempDir::new();
+    dir.file("revofmt.toml", "indent_width = 20\n");
+    dir.file("a.rv", "let x=1");
+    for args in [
+        vec!["--indent-width", "9", "a.rv"],
+        vec!["--prefer-config", "--indent-width", "9", "a.rv"],
+        vec!["--prefer-config", "--line-width", "19", "a.rv"],
+        vec!["--indent-width", "9", "--prefer-config", "a.rv"],
+        vec!["--stdin-filepath", "a.rv", "--max-blank-lines", "9"],
+    ] {
+        let output = run_in(&dir.0, &args, "let x=1");
         status(&output, 2);
         assert!(output.stdout.is_empty(), "{args:?}");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).contains(message),
+        assert_eq!(
+            stderr(&output),
+            format!("revofmt: {RANGE_ERROR}\n"),
             "{args:?}"
         );
     }
-    let output = run(&["--max-blank-lines", "9"], "let x=1");
-    status(&output, 2);
-    assert!(output.stdout.is_empty());
-    assert!(!output.stderr.is_empty());
+}
+
+#[test]
+fn arguments_after_help_or_version_are_not_examined() {
+    for (flag, expected) in [("--help", "revofmt [OPTIONS]"), ("--version", "revofmt ")] {
+        for later in [
+            vec!["--indent-width", "9"],
+            vec!["--line-width", "invalid"],
+            vec!["--indent-style", "tabs"],
+            vec!["--max-blank-lines"],
+            vec!["--unknown"],
+            vec!["--check", "--write"],
+            vec!["--write"],
+            vec!["--stdin-filepath"],
+            vec!["a.rv", "b.rv"],
+        ] {
+            let mut args = vec![flag];
+            args.extend(&later);
+            let output = run(&args, "");
+            status(&output, 0);
+            assert!(
+                String::from_utf8_lossy(&output.stdout).starts_with(expected),
+                "{args:?}"
+            );
+            assert!(output.stderr.is_empty(), "{args:?}");
+        }
+    }
 }
 
 #[test]

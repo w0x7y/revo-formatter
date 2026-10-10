@@ -252,42 +252,69 @@ mod tests {
     }
 
     #[test]
-    fn parses_every_key() {
-        let text =
-            "indent_width = 4\nline_width = 100\nindent_style = \"tab\"\nmax_blank_lines = 2\n";
+    fn every_key_is_resolved_from_a_file() {
+        let dir = TempDir::new();
+        dir.file(
+            FILE_NAME,
+            "indent_width = 4\nline_width = 100\nindent_style = \"tab\"\nmax_blank_lines = 2\n",
+        );
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("a.rv")))
+            .unwrap();
         assert_eq!(
-            parse(text).unwrap(),
-            Layout {
-                indent_width: Some(4),
-                line_width: Some(100),
-                indent_style: Some(IndentStyle::Tab),
-                max_blank_lines: Some(2),
+            options,
+            FormatOptions {
+                indent_width: 4,
+                line_width: 100,
+                indent_style: IndentStyle::Tab,
+                max_blank_lines: 2,
             }
         );
     }
 
     #[test]
-    fn empty_and_crlf_files_parse() {
-        assert_eq!(parse("").unwrap(), Layout::default());
+    fn empty_and_crlf_files_resolve() {
+        let dir = TempDir::new();
+        dir.file(FILE_NAME, "");
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("a.rv")))
+            .unwrap();
+        assert_eq!(options, FormatOptions::default());
+
+        let dir = TempDir::new();
+        dir.file(FILE_NAME, "# comment\r\nline_width = 90\r\n");
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("a.rv")))
+            .unwrap();
         assert_eq!(
-            parse("# comment\r\nline_width = 90\r\n")
-                .unwrap()
-                .line_width,
-            Some(90)
+            options,
+            FormatOptions {
+                line_width: 90,
+                ..FormatOptions::default()
+            }
         );
     }
 
     #[test]
-    fn rejects_unknown_keys_wrong_types_and_styles() {
-        for text in [
-            "indnet_width = 4",
-            "indent_width = \"4\"",
-            "indent_width = 4.0",
-            "indent_width = -1",
-            "indent_style = \"tabs\"",
-            "[layout]\nindent_width = 4",
+    fn unknown_keys_wrong_types_and_styles_name_the_configuration() {
+        for (text, expected) in [
+            ("indnet_width = 4", "unknown field `indnet_width`"),
+            ("indent_width = \"4\"", "invalid type"),
+            ("indent_width = 4.0", "invalid type"),
+            ("indent_width = -1", "invalid value"),
+            ("indent_style = \"tabs\"", "invalid indent_style `tabs`"),
+            ("[layout]\nindent_width = 4", "unknown field `layout`"),
         ] {
-            assert!(parse(text).is_err(), "{text}");
+            let dir = TempDir::new();
+            let config = dir.file(FILE_NAME, text);
+            let error = resolver(Layout::default())
+                .options(Some(&dir.path("a.rv")))
+                .unwrap_err();
+            assert!(
+                error.starts_with(&format!("{}: ", config.display())),
+                "{text}: {error}"
+            );
+            assert!(error.contains(expected), "{text}: {error}");
         }
     }
 
