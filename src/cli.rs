@@ -1,4 +1,4 @@
-use revofmt::{FormatOptions, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
+use revofmt::{FormatOptions, IndentStyle, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
 use std::{
     ffi::OsString,
     fs::{self, File, OpenOptions, Permissions},
@@ -17,8 +17,10 @@ Read stdin when FILE is absent or is -. Print formatted source by default.
 Options:
   --check             Report changed inputs without editing
   --write             Atomically replace changed files, preserving permissions
-  --indent-width N    Spaces per indentation level (1 through 8; default 2)
+  --indent-width N    Columns per indentation level (1 through 8; default 2)
+  --indent-style S    Indent with space or tab (default space)
   --line-width N      Target display columns (20 through 240; default 80)
+  --max-blank-lines N Consecutive blank lines kept (0 through 8; default 1)
   --help              Print this help
   --version           Print formatter version and pinned syntax revision
   --                  Treat following arguments as file paths
@@ -87,6 +89,23 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
                 } else {
                     options.line_width = value;
                 }
+                options.validate().map_err(|error| error.to_string())?;
+            }
+            Some("--indent-style") => {
+                options.indent_style = match args.next().as_deref().and_then(|v| v.to_str()) {
+                    Some("space") => IndentStyle::Space,
+                    Some("tab") => IndentStyle::Tab,
+                    _ => return Err("--indent-style requires space or tab".into()),
+                };
+                options.validate().map_err(|error| error.to_string())?;
+            }
+            Some("--max-blank-lines") => {
+                options.max_blank_lines = args
+                    .next()
+                    .as_deref()
+                    .and_then(|v| v.to_str())
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .ok_or("--max-blank-lines requires a non-negative integer")?;
                 options.validate().map_err(|error| error.to_string())?;
             }
             _ if arg != "-" && arg.to_string_lossy().starts_with('-') => {

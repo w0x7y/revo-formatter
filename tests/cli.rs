@@ -199,7 +199,15 @@ fn help_version_and_option_overrides() {
     let help = run(&["--help"], "");
     status(&help, 0);
     let help = String::from_utf8(help.stdout).unwrap();
-    for option in ["--write", "--check", "--indent-width", "--line-width", "--"] {
+    for option in [
+        "--write",
+        "--check",
+        "--indent-width",
+        "--indent-style",
+        "--line-width",
+        "--max-blank-lines",
+        "--",
+    ] {
         assert!(help.contains(option));
     }
     let version = run(&["--version"], "");
@@ -228,6 +236,60 @@ fn help_version_and_option_overrides() {
 }
 
 #[test]
+fn indent_style_and_blank_line_flags() {
+    let output = run(&["--indent-style", "tab"], "do\nfoo()\nend");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"do\n\tfoo()\nend\n");
+    let output = run(&["--max-blank-lines", "0"], "let a=1\n\n\nlet b=2");
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let a = 1\nlet b = 2\n");
+    let output = run(
+        &["--max-blank-lines", "2", "--indent-style", "space"],
+        "let a=1\n\n\n\nlet b=2",
+    );
+    status(&output, 0);
+    assert_eq!(output.stdout, b"let a = 1\n\n\nlet b = 2\n");
+}
+
+#[test]
+fn layout_flag_errors_name_the_flag() {
+    for (args, message) in [
+        (
+            vec!["--indent-style"],
+            "--indent-style requires space or tab",
+        ),
+        (
+            vec!["--indent-style", "tabs"],
+            "--indent-style requires space or tab",
+        ),
+        (
+            vec!["--max-blank-lines"],
+            "--max-blank-lines requires a non-negative integer",
+        ),
+        (
+            vec!["--max-blank-lines", "-1"],
+            "--max-blank-lines requires a non-negative integer",
+        ),
+        (
+            vec!["--max-blank-lines", "many"],
+            "--max-blank-lines requires a non-negative integer",
+        ),
+    ] {
+        let output = run(&args, "let x=1");
+        status(&output, 2);
+        assert!(output.stdout.is_empty(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(message),
+            "{args:?}"
+        );
+    }
+    let output = run(&["--max-blank-lines", "9"], "let x=1");
+    status(&output, 2);
+    assert!(output.stdout.is_empty());
+    assert!(!output.stderr.is_empty());
+}
+
+#[test]
 fn rejects_invalid_arguments_without_source() {
     for args in [
         vec!["--check", "--write", "file.rv"],
@@ -240,6 +302,11 @@ fn rejects_invalid_arguments_without_source() {
         vec!["--line-width", "241"],
         vec!["--line-width", "241", "--version"],
         vec!["--line-width", "invalid"],
+        vec!["--indent-style"],
+        vec!["--indent-style", "tabs"],
+        vec!["--max-blank-lines"],
+        vec!["--max-blank-lines", "9"],
+        vec!["--max-blank-lines", "-1"],
         vec!["--unknown"],
         vec!["--write"],
         vec!["--write", "-"],

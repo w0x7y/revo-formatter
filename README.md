@@ -85,8 +85,10 @@ printf 'let x=1' | revofmt
 revofmt example.rv                       # print it, leave the file alone
 revofmt --check first.rv second.rv       # check without writing
 revofmt --write first.rv second.rv       # format in place
-revofmt --indent-width 4 example.rv      # default: 2 spaces
+revofmt --indent-width 4 example.rv      # default: 2 columns per level
+revofmt --indent-style tab example.rv    # default: space
 revofmt --line-width 24 example.rv       # default: 80 columns
+revofmt --max-blank-lines 2 example.rv   # default: 1
 revofmt -- --example.rv                  # a filename starting with a dash
 revofmt --help
 ```
@@ -107,7 +109,9 @@ print(
 ```
 
 width is a soft target. comments, literals and syntax that can't safely break can
-go past it. indentation accepts 1 to 8 spaces; width accepts 20 to 240 columns.
+go past it. indentation accepts 1 to 8 columns per level; width accepts 20 to 240
+columns. tabs write one tab per level and count `--indent-width` columns when
+fitting lines. blank lines accept 0 to 8 and default to 1.
 
 exit codes are `0` for success, `1` when `--check` finds a difference, and `2` for
 an error. diagnostics go to stderr. invalid syntax produces no formatted output.

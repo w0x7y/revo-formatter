@@ -19,6 +19,7 @@ target/release/revofmt --write first.rv second.rv
 
 # Override layout settings.
 target/release/revofmt --indent-width 4 --line-width 24 example.rv
+target/release/revofmt --indent-style tab --max-blank-lines 2 example.rv
 
 # A filename starting with a dash follows --.
 target/release/revofmt -- --example.rv
@@ -43,8 +44,11 @@ print(
 )
 ```
 
-Defaults are two spaces per indentation level and 80 display columns.
-`--indent-width` accepts 1 through 8; `--line-width` accepts 20 through 240.
+Defaults are two spaces per indentation level, 80 display columns and at most
+one consecutive blank line. `--indent-width` accepts 1 through 8;
+`--line-width` accepts 20 through 240. `--indent-style` accepts `space` or `tab`;
+tabs write one tab per indentation level and count `--indent-width` columns
+when fitting lines. `--max-blank-lines` accepts 0 through 8.
 Width is a soft target. Long literals, comments, and syntax that cannot safely
 break can exceed it. The formatter can retain compact spacing through its
 validated conservative fallback. Comment boundaries are retained. Short block
