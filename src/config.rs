@@ -40,6 +40,61 @@ impl Layout {
     }
 }
 
+/// Layout flags that each passed range validation when they were supplied.
+///
+/// Storage is private and partial, so a flag that was never given stays distinct
+/// from one that restates a default. The only way to change a value is a typed
+/// update that checks the result with [`FormatOptions::validate`] and fails
+/// without producing flags. A [`Resolver`] therefore never sees an invalid flag,
+/// and any range error it reports can only come from a configuration file.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct LayoutFlags {
+    layout: Layout,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl LayoutFlags {
+    pub(crate) fn with_indent_width(self, value: usize) -> Result<Self, String> {
+        self.updated(Layout {
+            indent_width: Some(value),
+            ..self.layout
+        })
+    }
+
+    pub(crate) fn with_line_width(self, value: usize) -> Result<Self, String> {
+        self.updated(Layout {
+            line_width: Some(value),
+            ..self.layout
+        })
+    }
+
+    pub(crate) fn with_indent_style(self, value: IndentStyle) -> Result<Self, String> {
+        self.updated(Layout {
+            indent_style: Some(value),
+            ..self.layout
+        })
+    }
+
+    pub(crate) fn with_max_blank_lines(self, value: usize) -> Result<Self, String> {
+        self.updated(Layout {
+            max_blank_lines: Some(value),
+            ..self.layout
+        })
+    }
+
+    /// Accept `layout` only if the library accepts it over the built-in defaults.
+    /// The other supplied values were already valid, so only the changed one can
+    /// be rejected, with the library's own message.
+    fn updated(self, layout: Layout) -> Result<Self, String> {
+        layout
+            .over(FormatOptions::default())
+            .validate()
+            .map_err(|error| error.to_string())?;
+        Ok(Self { layout })
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawLayout {
@@ -249,6 +304,85 @@ mod tests {
 
     fn resolver(flags: Layout) -> Resolver {
         Resolver::new(flags, false, true)
+    }
+
+    fn library_range_error() -> String {
+        FormatOptions {
+            line_width: 0,
+            ..FormatOptions::default()
+        }
+        .validate()
+        .unwrap_err()
+        .to_string()
+    }
+
+    #[test]
+    fn flag_updates_accept_the_library_ranges_and_reject_the_rest() {
+        let library = library_range_error();
+        // A rejected update carries the library's message and no flags.
+        let check = |what: &str, result: Result<LayoutFlags, String>, valid: bool| match result {
+            Ok(_) => assert!(valid, "{what} was accepted"),
+            Err(error) => {
+                assert!(!valid, "{what} was rejected: {error}");
+                assert_eq!(error, library, "{what}");
+            }
+        };
+        let flags = LayoutFlags::default();
+        for (value, valid) in [(0, false), (1, true), (8, true), (9, false)] {
+            check("indent width", flags.with_indent_width(value), valid);
+        }
+        for (value, valid) in [(19, false), (20, true), (240, true), (241, false)] {
+            check("line width", flags.with_line_width(value), valid);
+        }
+        for (value, valid) in [(0, true), (8, true), (9, false), (usize::MAX, false)] {
+            check("max blank lines", flags.with_max_blank_lines(value), valid);
+        }
+        for style in [IndentStyle::Space, IndentStyle::Tab] {
+            check("indent style", flags.with_indent_style(style), true);
+        }
+    }
+
+    #[test]
+    fn a_rejected_update_leaves_the_earlier_flags_usable() {
+        let flags = LayoutFlags::default()
+            .with_indent_width(4)
+            .unwrap()
+            .with_line_width(100)
+            .unwrap();
+        assert!(flags.with_indent_width(9).is_err());
+        assert!(flags.with_line_width(19).is_err());
+        assert_eq!(
+            flags.layout.over(FormatOptions::default()),
+            FormatOptions {
+                indent_width: 4,
+                line_width: 100,
+                ..FormatOptions::default()
+            }
+        );
+    }
+
+    #[test]
+    fn flag_updates_keep_every_other_value_and_each_absence() {
+        let flags = LayoutFlags::default()
+            .with_max_blank_lines(0)
+            .unwrap()
+            .with_indent_style(IndentStyle::Tab)
+            .unwrap()
+            .with_indent_width(8)
+            .unwrap();
+        assert_eq!(
+            flags.layout,
+            Layout {
+                indent_width: Some(8),
+                line_width: None,
+                indent_style: Some(IndentStyle::Tab),
+                max_blank_lines: Some(0),
+            }
+        );
+        // Restating a default still supplies the value.
+        let restated = LayoutFlags::default().with_line_width(80).unwrap();
+        assert_eq!(restated.layout.line_width, Some(80));
+        assert_ne!(restated, LayoutFlags::default());
     }
 
     #[test]
