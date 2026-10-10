@@ -77,11 +77,12 @@ MIT provenance. Suffixes specify line width and indent width.
 ## Verification and limits
 
 `src/tests/corpus.rs` checks every valid input at widths 24, 80 and 120 with
-indent widths 2 and 4: 120 input/option combinations. Each result is checked for
+indent widths 2 and 4, both indent styles and blank-line limits 0, 1 and 2:
+720 input/option combinations. Each result is checked for
 reparsing, exact interleaved raw token/comment tape, complete AST equality
 modulo source coordinates, and second-pass byte identity. There are four
-expected-output cases and one selected invalid fixture checked at all six
-options. Direct whitespace and moved-comment/string-spelling controls prove
+expected-output cases, all at space indentation and blank-line limit 1, and one
+selected invalid fixture checked at all 36 option sets. Direct whitespace and moved-comment/string-spelling controls prove
 why both preservation checks are necessary. Production validator controls
 also live in `src/lib.rs` and `src/oracle.rs`. See the
 [current verification commands](../../../README.md#development-and-verification)
