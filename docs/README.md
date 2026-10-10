@@ -11,6 +11,7 @@
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
+- [Formatter configuration verification](verification/2026-10-10-formatter-configuration.md): tab indentation, blank-line limits and `revofmt.toml` at the 0.2.0 candidate, with the default-output comparison against 0.1.2 and the unpublished-release limits.
 - [Integration verification](verification/2026-10-09-integration.md): public grammar revision, updated Zed pin and fresh pre-integration tests across the six repos.
 - [Architecture and Final Check](verification/2026-10-09-architecture-final-check.md): ownership changes, complete review scope, tests and publication limits before authorized integration.
 - [Upstream refresh verification](verification/2026-10-09-upstream-refresh.md): the preceding compiler, grammar and editor refresh stage.
@@ -30,6 +31,7 @@ guides above for new work.
 | Layout scopes and document fitting | Findings recorded in the plan | [Completed plan](superpowers/plans/2026-10-06-layout-depth.md) |
 | Editor integrations | [Approved design](superpowers/specs/2026-10-06-editor-integrations-design.md) | [Completed plan](superpowers/plans/2026-10-06-editor-integrations.md) |
 | Architecture follow-up | [Approved design](superpowers/specs/2026-10-06-architecture-followup-design.md) | [Completed plan](superpowers/plans/2026-10-06-architecture-followup.md) |
+| Formatter configuration | [Approved design](superpowers/specs/2026-10-10-formatter-configuration-design.md) | [Plan](superpowers/plans/2026-10-10-formatter-configuration.md) |
 
 ## Historical verification
 
