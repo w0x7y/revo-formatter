@@ -1,5 +1,5 @@
-use crate::config::{Layout, Resolver};
-use revofmt::{FormatOptions, IndentStyle, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
+use crate::config::{LayoutFlags, Resolver};
+use revofmt::{IndentStyle, MAX_SOURCE_BYTES, UPSTREAM_REVISION, format};
 use std::{
     ffi::OsString,
     fs::{self, File, OpenOptions, Permissions},
@@ -45,7 +45,7 @@ enum Mode {
 
 struct Arguments {
     mode: Mode,
-    flags: Layout,
+    flags: LayoutFlags,
     prefer_config: bool,
     no_config: bool,
     stdin_filepath: Option<PathBuf>,
@@ -61,7 +61,9 @@ enum Command {
 fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
     let mut args = args.into_iter();
     let mut mode = Mode::Print;
-    let mut flags = Layout::default();
+    // Each layout flag is range-checked as it is parsed, even when
+    // `--prefer-config` later ignores it, so the resolver only sees valid flags.
+    let mut flags = LayoutFlags::default();
     let mut prefer_config = false;
     let mut no_config = false;
     let mut stdin_filepath = None;
@@ -96,30 +98,28 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
                     .to_str()
                     .and_then(|s| s.parse::<usize>().ok())
                     .ok_or_else(|| format!("{name} requires a positive integer"))?;
-                if name == "--indent-width" {
-                    flags.indent_width = Some(value);
+                flags = if name == "--indent-width" {
+                    flags.with_indent_width(value)?
                 } else {
-                    flags.line_width = Some(value);
-                }
-                validate_flags(flags)?;
+                    flags.with_line_width(value)?
+                };
             }
             Some("--indent-style") => {
-                flags.indent_style = Some(match args.next().as_deref().and_then(|v| v.to_str()) {
+                let style = match args.next().as_deref().and_then(|v| v.to_str()) {
                     Some("space") => IndentStyle::Space,
                     Some("tab") => IndentStyle::Tab,
                     _ => return Err("--indent-style requires space or tab".into()),
-                });
-                validate_flags(flags)?;
+                };
+                flags = flags.with_indent_style(style)?;
             }
             Some("--max-blank-lines") => {
-                flags.max_blank_lines = Some(
-                    args.next()
-                        .as_deref()
-                        .and_then(|v| v.to_str())
-                        .and_then(|v| v.parse::<usize>().ok())
-                        .ok_or("--max-blank-lines requires a non-negative integer")?,
-                );
-                validate_flags(flags)?;
+                let value = args
+                    .next()
+                    .as_deref()
+                    .and_then(|v| v.to_str())
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .ok_or("--max-blank-lines requires a non-negative integer")?;
+                flags = flags.with_max_blank_lines(value)?;
             }
             Some("--stdin-filepath") => {
                 stdin_filepath = Some(PathBuf::from(
@@ -154,16 +154,6 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
         stdin_filepath,
         inputs,
     }))
-}
-
-/// Reject out-of-range flag values during parsing, even when `--prefer-config`
-/// later ignores them. The resolver prefixes errors with the configuration
-/// path when a file applies, so only the file can cause such an error there.
-fn validate_flags(flags: Layout) -> Result<(), String> {
-    flags
-        .over(FormatOptions::default())
-        .validate()
-        .map_err(|error| error.to_string())
 }
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<u8, String> {

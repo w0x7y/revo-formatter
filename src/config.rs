@@ -1,8 +1,11 @@
 //! `revofmt.toml` parsing and per-input discovery for the command line.
 //!
-//! Layout flags and file keys are each partial: a [`Layout`] holds only the
-//! values that were supplied. The [`Resolver`] merges them over the library
-//! defaults according to the precedence table in the configuration design.
+//! Layout flags and file keys are each partial: they hold only the values that
+//! were supplied. Flags arrive as [`LayoutFlags`], which can only hold values the
+//! library accepts; file values are range-checked only after precedence has been
+//! resolved, so a valid flag may override an out-of-range file value. The
+//! [`Resolver`] merges both over the library defaults according to the
+//! precedence table in the configuration design.
 
 use revofmt::{FormatOptions, IndentStyle};
 use serde::Deserialize;
@@ -19,18 +22,20 @@ pub(crate) const FILE_NAME: &str = "revofmt.toml";
 /// a larger file without buffering it.
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 
-/// Layout values that were supplied by a flag or a configuration file.
+/// Layout values that were supplied by a flag or a configuration file, with no
+/// range validation of their own. Private to this module: the command line
+/// supplies [`LayoutFlags`], and file values stay in this form until resolved.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Layout {
-    pub(crate) indent_width: Option<usize>,
-    pub(crate) line_width: Option<usize>,
-    pub(crate) indent_style: Option<IndentStyle>,
-    pub(crate) max_blank_lines: Option<usize>,
+struct Layout {
+    indent_width: Option<usize>,
+    line_width: Option<usize>,
+    indent_style: Option<IndentStyle>,
+    max_blank_lines: Option<usize>,
 }
 
 impl Layout {
     /// Replace each `base` value for which this layout supplies one.
-    pub(crate) fn over(self, base: FormatOptions) -> FormatOptions {
+    fn over(self, base: FormatOptions) -> FormatOptions {
         FormatOptions {
             indent_width: self.indent_width.unwrap_or(base.indent_width),
             line_width: self.line_width.unwrap_or(base.line_width),
@@ -48,12 +53,10 @@ impl Layout {
 /// without producing flags. A [`Resolver`] therefore never sees an invalid flag,
 /// and any range error it reports can only come from a configuration file.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct LayoutFlags {
     layout: Layout,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl LayoutFlags {
     pub(crate) fn with_indent_width(self, value: usize) -> Result<Self, String> {
         self.updated(Layout {
@@ -105,7 +108,7 @@ struct RawLayout {
 }
 
 /// Parse the contents of a configuration file. Messages omit the file path.
-pub(crate) fn parse(text: &str) -> Result<Layout, String> {
+fn parse(text: &str) -> Result<Layout, String> {
     let raw: RawLayout = toml::from_str(text).map_err(|error| {
         let line = error
             .span()
@@ -139,14 +142,14 @@ type Found = Option<(PathBuf, Layout)>;
 /// Resolves the options for each input from flags and the nearest
 /// configuration file, caching discovery results per directory.
 pub(crate) struct Resolver {
-    flags: Layout,
+    flags: LayoutFlags,
     prefer_config: bool,
     discover: bool,
     cache: HashMap<PathBuf, Result<Found, String>>,
 }
 
 impl Resolver {
-    pub(crate) fn new(flags: Layout, prefer_config: bool, discover: bool) -> Self {
+    pub(crate) fn new(flags: LayoutFlags, prefer_config: bool, discover: bool) -> Self {
         Self {
             flags,
             prefer_config,
@@ -156,22 +159,23 @@ impl Resolver {
     }
 
     /// Options for one input. `anchor` is the input path or `--stdin-filepath`;
-    /// `None` skips discovery. Errors name the configuration path.
+    /// `None` skips discovery. Flags were validated when supplied, so only a
+    /// configuration file can fail the range check, and errors name its path.
     pub(crate) fn options(&mut self, anchor: Option<&Path>) -> Result<FormatOptions, String> {
         let found = match anchor {
             Some(anchor) if self.discover => self.discover(anchor)?,
             _ => None,
         };
         let defaults = FormatOptions::default();
-        let options = match &found {
-            Some((_, file)) if self.prefer_config => file.over(defaults),
-            Some((_, file)) => self.flags.over(file.over(defaults)),
-            None => self.flags.over(defaults),
+        let Some((path, file)) = found else {
+            return Ok(self.flags.layout.over(defaults));
         };
-        options.validate().map_err(|error| match &found {
-            Some((path, _)) => at(path, error),
-            None => error.to_string(),
-        })?;
+        let options = if self.prefer_config {
+            file.over(defaults)
+        } else {
+            self.flags.layout.over(file.over(defaults))
+        };
+        options.validate().map_err(|error| at(&path, error))?;
         Ok(options)
     }
 
@@ -302,7 +306,7 @@ mod tests {
         }
     }
 
-    fn resolver(flags: Layout) -> Resolver {
+    fn resolver(flags: LayoutFlags) -> Resolver {
         Resolver::new(flags, false, true)
     }
 
@@ -392,7 +396,7 @@ mod tests {
             FILE_NAME,
             "indent_width = 4\nline_width = 100\nindent_style = \"tab\"\nmax_blank_lines = 2\n",
         );
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap();
         assert_eq!(
@@ -410,14 +414,14 @@ mod tests {
     fn empty_and_crlf_files_resolve() {
         let dir = TempDir::new();
         dir.file(FILE_NAME, "");
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap();
         assert_eq!(options, FormatOptions::default());
 
         let dir = TempDir::new();
         dir.file(FILE_NAME, "# comment\r\nline_width = 90\r\n");
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap();
         assert_eq!(
@@ -441,7 +445,7 @@ mod tests {
         ] {
             let dir = TempDir::new();
             let config = dir.file(FILE_NAME, text);
-            let error = resolver(Layout::default())
+            let error = resolver(LayoutFlags::default())
                 .options(Some(&dir.path("a.rv")))
                 .unwrap_err();
             assert!(
@@ -521,7 +525,7 @@ mod tests {
         dir.file(FILE_NAME, "line_width = 100\n");
         dir.file("sub/revofmt.toml", "line_width = 60\n");
         fs::create_dir_all(dir.path("sub/deeper")).unwrap();
-        let mut resolver = resolver(Layout::default());
+        let mut resolver = resolver(LayoutFlags::default());
         let deep = resolver
             .options(Some(&dir.path("sub/deeper/a.rv")))
             .unwrap();
@@ -535,11 +539,11 @@ mod tests {
         let dir = TempDir::new();
         dir.file(FILE_NAME, "indent_style = \"tab\"\nline_width = 24\n");
         let anchor = dir.path("a.rv");
-        let flags = Layout {
-            line_width: Some(80),
-            max_blank_lines: Some(0),
-            ..Layout::default()
-        };
+        let flags = LayoutFlags::default()
+            .with_line_width(80)
+            .unwrap()
+            .with_max_blank_lines(0)
+            .unwrap();
         let summary = |options: FormatOptions| {
             (
                 options.indent_style,
@@ -590,16 +594,23 @@ mod tests {
         assert_no_configuration_above_temp();
         let dir = TempDir::new();
         fs::create_dir_all(dir.path("empty")).unwrap();
-        let flags = Layout {
-            indent_width: Some(3),
-            max_blank_lines: Some(2),
-            ..Layout::default()
-        };
+        let flags = LayoutFlags::default()
+            .with_indent_width(3)
+            .unwrap()
+            .with_max_blank_lines(2)
+            .unwrap();
         for prefer_config in [false, true] {
             let options = Resolver::new(flags, prefer_config, true)
                 .options(Some(&dir.path("empty/a.rv")))
                 .unwrap();
-            assert_eq!(options, flags.over(FormatOptions::default()));
+            assert_eq!(
+                options,
+                FormatOptions {
+                    indent_width: 3,
+                    max_blank_lines: 2,
+                    ..FormatOptions::default()
+                }
+            );
         }
     }
 
@@ -607,7 +618,7 @@ mod tests {
     fn out_of_range_values_name_the_configuration() {
         let dir = TempDir::new();
         let config = dir.file(FILE_NAME, "max_blank_lines = 9\n");
-        let error = resolver(Layout::default())
+        let error = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap_err();
         assert!(
@@ -618,10 +629,43 @@ mod tests {
     }
 
     #[test]
+    fn a_valid_flag_overrides_an_out_of_range_file_value() {
+        let dir = TempDir::new();
+        let config = dir.file(FILE_NAME, "indent_width = 20\n");
+        let anchor = dir.path("a.rv");
+        let overriding = LayoutFlags::default().with_indent_width(2).unwrap();
+        let options = Resolver::new(overriding, false, true)
+            .options(Some(&anchor))
+            .unwrap();
+        assert_eq!(options.indent_width, 2);
+
+        // The file wins under --prefer-config, a flag for another key leaves the
+        // bad value in force, and without discovery the file is never read.
+        let other = LayoutFlags::default().with_line_width(80).unwrap();
+        for (flags, prefer_config, discover) in [
+            (overriding, true, true),
+            (other, false, true),
+            (LayoutFlags::default(), false, true),
+        ] {
+            let error = Resolver::new(flags, prefer_config, discover)
+                .options(Some(&anchor))
+                .unwrap_err();
+            assert_eq!(
+                error,
+                format!("{}: {}", config.display(), library_range_error())
+            );
+        }
+        let options = Resolver::new(LayoutFlags::default(), false, false)
+            .options(Some(&anchor))
+            .unwrap();
+        assert_eq!(options, FormatOptions::default());
+    }
+
+    #[test]
     fn invalid_syntax_names_the_configuration_and_line() {
         let dir = TempDir::new();
         let config = dir.file(FILE_NAME, "line_width = 90\nindnet_width = 4\n");
-        let error = resolver(Layout::default())
+        let error = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap_err();
         assert!(
@@ -654,7 +698,7 @@ mod tests {
         for (name, setup) in cases {
             let dir = TempDir::new();
             setup(&dir);
-            let error = resolver(Layout::default())
+            let error = resolver(LayoutFlags::default())
                 .options(Some(&dir.path("a.rv")))
                 .unwrap_err();
             let config = dir.path(FILE_NAME);
@@ -667,7 +711,7 @@ mod tests {
         let dir = TempDir::new();
         dir.file("real.toml", "line_width = 33\n");
         symlink("real.toml", dir.path(FILE_NAME)).unwrap();
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap();
         assert_eq!(options.line_width, 33);
@@ -680,7 +724,7 @@ mod tests {
         text.push_str(&"#".repeat(65_536 - text.len()));
         assert_eq!(text.len(), 65_536);
         dir.file(FILE_NAME, text);
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("a.rv")))
             .unwrap();
         assert_eq!(options.line_width, 41);
@@ -690,7 +734,7 @@ mod tests {
     fn results_are_cached_per_directory() {
         let dir = TempDir::new();
         let config = dir.file(FILE_NAME, "line_width = 50\n");
-        let mut resolver = resolver(Layout::default());
+        let mut resolver = resolver(LayoutFlags::default());
         let first = resolver.options(Some(&dir.path("a.rv"))).unwrap();
         fs::remove_file(config).unwrap();
         let second = resolver.options(Some(&dir.path("b.rv"))).unwrap();
@@ -705,7 +749,7 @@ mod tests {
     fn errors_are_cached_too() {
         let dir = TempDir::new();
         let config = dir.file(FILE_NAME, "line_width = \"wide\"\n");
-        let mut resolver = resolver(Layout::default());
+        let mut resolver = resolver(LayoutFlags::default());
         let first = resolver.options(Some(&dir.path("a.rv"))).unwrap_err();
         fs::write(&config, "line_width = 50\n").unwrap();
         let second = resolver.options(Some(&dir.path("b.rv"))).unwrap_err();
@@ -716,7 +760,7 @@ mod tests {
     fn a_missing_subdirectory_of_a_configured_project_finds_its_configuration() {
         let dir = TempDir::new();
         dir.file(FILE_NAME, "line_width = 70\n");
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("not/created/a.rv")))
             .unwrap();
         assert_eq!(options.line_width, 70);
@@ -727,7 +771,7 @@ mod tests {
         let dir = TempDir::new();
         dir.file(FILE_NAME, "line_width = 70\n");
         dir.file("plain.txt", "not a directory");
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("plain.txt/a.rv")))
             .unwrap();
         assert_eq!(options.line_width, 70);
@@ -741,11 +785,15 @@ mod tests {
         fs::create_dir_all(dir.path("project_b")).unwrap();
         let anchor = dir.path("project_a/../project_b/new/x.rv");
 
-        let options = resolver(Layout::default()).options(Some(&anchor)).unwrap();
+        let options = resolver(LayoutFlags::default())
+            .options(Some(&anchor))
+            .unwrap();
         assert_eq!(options, FormatOptions::default());
 
         dir.file("project_b/revofmt.toml", "line_width = 55\n");
-        let options = resolver(Layout::default()).options(Some(&anchor)).unwrap();
+        let options = resolver(LayoutFlags::default())
+            .options(Some(&anchor))
+            .unwrap();
         assert_eq!(options.line_width, 55);
         assert_eq!(options.indent_style, IndentStyle::Space);
     }
@@ -759,11 +807,11 @@ mod tests {
         dir.file("project/revofmt.toml", "indent_style = \"tab\"\n");
         dir.file("elsewhere/a.rv", "let x = 1\n");
         symlink(dir.path("elsewhere/a.rv"), dir.path("project/a.rv")).unwrap();
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("project/a.rv")))
             .unwrap();
         assert_eq!(options.indent_style, IndentStyle::Tab);
-        let options = resolver(Layout::default())
+        let options = resolver(LayoutFlags::default())
             .options(Some(&dir.path("elsewhere/a.rv")))
             .unwrap();
         assert_eq!(options, FormatOptions::default());
@@ -785,13 +833,17 @@ mod tests {
         ];
 
         for anchor in &anchors {
-            let options = resolver(Layout::default()).options(Some(anchor)).unwrap();
+            let options = resolver(LayoutFlags::default())
+                .options(Some(anchor))
+                .unwrap();
             assert_eq!(options, FormatOptions::default(), "{}", anchor.display());
         }
 
         dir.file("outside/revofmt.toml", "line_width = 55\n");
         for anchor in &anchors {
-            let options = resolver(Layout::default()).options(Some(anchor)).unwrap();
+            let options = resolver(LayoutFlags::default())
+                .options(Some(anchor))
+                .unwrap();
             assert_eq!(options.line_width, 55, "{}", anchor.display());
             assert_eq!(options.indent_style, IndentStyle::Space);
         }
