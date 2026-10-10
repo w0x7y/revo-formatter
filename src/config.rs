@@ -355,8 +355,9 @@ mod tests {
             .unwrap();
         assert!(flags.with_indent_width(9).is_err());
         assert!(flags.with_line_width(19).is_err());
+        let options = Resolver::new(flags, false, true).options(None).unwrap();
         assert_eq!(
-            flags.layout.over(FormatOptions::default()),
+            options,
             FormatOptions {
                 indent_width: 4,
                 line_width: 100,
@@ -366,7 +367,10 @@ mod tests {
     }
 
     #[test]
-    fn flag_updates_keep_every_other_value_and_each_absence() {
+    fn flag_updates_keep_every_other_value_and_absent_flags_defer_to_the_file() {
+        let dir = TempDir::new();
+        dir.file(FILE_NAME, "line_width = 24\n");
+        let anchor = dir.path("a.rv");
         let flags = LayoutFlags::default()
             .with_max_blank_lines(0)
             .unwrap()
@@ -374,19 +378,35 @@ mod tests {
             .unwrap()
             .with_indent_width(8)
             .unwrap();
+        // Every supplied flag survives later updates; the absent line width comes
+        // from the file.
+        let options = Resolver::new(flags, false, true)
+            .options(Some(&anchor))
+            .unwrap();
         assert_eq!(
-            flags.layout,
-            Layout {
-                indent_width: Some(8),
-                line_width: None,
-                indent_style: Some(IndentStyle::Tab),
-                max_blank_lines: Some(0),
+            options,
+            FormatOptions {
+                indent_width: 8,
+                line_width: 24,
+                indent_style: IndentStyle::Tab,
+                max_blank_lines: 0,
             }
         );
-        // Restating a default still supplies the value.
-        let restated = LayoutFlags::default().with_line_width(80).unwrap();
-        assert_eq!(restated.layout.line_width, Some(80));
-        assert_ne!(restated, LayoutFlags::default());
+        // Restating the default line width still supplies it, unlike an absent
+        // flag, so it overrides the file.
+        let restated = flags.with_line_width(80).unwrap();
+        let options = Resolver::new(restated, false, true)
+            .options(Some(&anchor))
+            .unwrap();
+        assert_eq!(
+            options,
+            FormatOptions {
+                indent_width: 8,
+                line_width: 80,
+                indent_style: IndentStyle::Tab,
+                max_blank_lines: 0,
+            }
+        );
     }
 
     #[test]
