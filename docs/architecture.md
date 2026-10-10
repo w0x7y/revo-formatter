@@ -30,8 +30,8 @@ Source positions can change, including positions observable by procedural macros
 | [src/layout_index.rs](../src/layout_index.rs) | Indexed source facts, complete lexical envelopes and range-bounded typed scopes |
 | [src/layout.rs](../src/layout.rs) | Scope traversal, document construction and, in its private gap module, every whitespace decision between tokens |
 | [src/document.rs](../src/document.rs) | Cached flat widths, groups, fill continuations, enclosures, suffix fitting and rendering |
-| [src/cli.rs](../src/cli.rs) | Bounded input, modes, per-input options from configuration, diagnostics, batch prevalidation and atomic file replacement |
-| [src/config.rs](../src/config.rs) | Configuration discovery, bounded reading, TOML parsing and per-input option resolution |
+| [src/cli.rs](../src/cli.rs) | Argument grammar, bounded input, modes, per-input options from configuration, diagnostics, batch prevalidation and atomic file replacement |
+| [src/config.rs](../src/config.rs) | Range-validated layout flags, configuration discovery, bounded reading, TOML parsing and per-input option resolution. Flags are checked when supplied; file values only after precedence |
 | [bridge/frontend.zig](../bridge/frontend.zig) | Synchronous C ABI, per-operation arenas and pure frontend calls |
 | [bridge/source.zig](../bridge/source.zig) | Exact raw token envelopes, collector-owned block completion and source-backed layout hints |
 | [bridge/compare.zig](../bridge/compare.zig) | Exhaustive structural comparison, ignoring only exact upstream `ast.Span` values |
