@@ -12,7 +12,8 @@ file.
 - Indentation can use tabs.
 - The number of consecutive blank lines kept is configurable.
 - Preservation, idempotence, the four-pass fixed-point bound, input admission
-  and exit codes are unchanged. Default options produce the same bytes as 0.1.2.
+  and exit codes are unchanged. Default options produce the same bytes as the
+  starting commit `f9c95329`.
 
 ## Non-goals
 
@@ -267,7 +268,8 @@ and idempotence checks:
   spaces.
 - Blank lines: limits 0 and 2 between statements, inside blocks, in lists,
   after comments, and with CRLF source.
-- Default options produce the same output as 0.1.2 for existing cases.
+- Default options produce the same output as the starting commit for existing
+  cases.
 
 `src/tests/corpus.rs`:
 
