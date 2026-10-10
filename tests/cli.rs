@@ -757,6 +757,54 @@ fn stdin_filepath_discovers_from_nonexistent_and_relative_paths() {
     assert_eq!(output.stdout, b"do\n  foo()\nend\n");
 }
 
+/// The argv every editor adapter spawns: its own settings as flags,
+/// `--prefer-config`, and the buffer path as `--stdin-filepath`.
+fn adapter_argv(path: &Path) -> Vec<&OsStr> {
+    vec![
+        OsStr::new("--prefer-config"),
+        OsStr::new("--stdin-filepath"),
+        path.as_os_str(),
+        OsStr::new("--indent-width"),
+        OsStr::new("4"),
+        OsStr::new("--line-width"),
+        OsStr::new("80"),
+        OsStr::new("--indent-style"),
+        OsStr::new("space"),
+        OsStr::new("--max-blank-lines"),
+        OsStr::new("0"),
+        OsStr::new("-"),
+    ]
+}
+
+#[test]
+fn adapter_argv_lets_a_project_file_win_over_editor_settings() {
+    let dir = TempDir::new();
+    dir.file("configured/revofmt.toml", TAB_CONFIG);
+    dir.file("plain/keep.txt", "");
+    let source = "do\nconsume(first_argument, second)\nend\n\n\nlet b=2";
+
+    // The file sets the style and width; the keys it omits use the built-in
+    // defaults, not the editor's 4 columns or 0 blank lines.
+    let configured = dir.0.join("configured").join("buffer.rv");
+    let output = invoke(&adapter_argv(&configured), source);
+    status(&output, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "do\n\tconsume(\n\t\tfirst_argument,\n\t\tsecond\n\t)\nend\n\nlet b = 2\n"
+    );
+    assert!(output.stderr.is_empty());
+
+    // Without a configuration the editor's settings apply as flags.
+    let plain = dir.0.join("plain").join("buffer.rv");
+    let output = invoke(&adapter_argv(&plain), source);
+    status(&output, 0);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "do\n    consume(first_argument, second)\nend\nlet b = 2\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
 #[test]
 fn stdin_filepath_requires_stdin() {
     for args in [

@@ -325,7 +325,32 @@ mod tests {
                 .join()
                 .unwrap()
                 .unwrap_err();
-            assert!(error.contains("recurse"), "{error}");
+            assert!(error.contains("recurs"), "{error}");
+        }
+    }
+
+    #[test]
+    fn deeply_nested_key_paths_are_errors_on_a_two_mib_thread() {
+        const DEPTH: usize = 30_000;
+        let path = vec!["a"; DEPTH].join(".");
+        let inputs = [
+            ("dotted key", format!("{path} = 1\n")),
+            ("table header", format!("[{path}]\n")),
+            ("array of tables", format!("[[{path}]]\n")),
+            ("inline dotted key", format!("x = {{ {path} = 1 }}\n")),
+            ("nested dotted key", format!("indent_width.{path} = 1\n")),
+        ];
+        // Each stays under the 64 KiB bound of the file reader.
+        for (name, text) in inputs {
+            assert!(text.len() < 65_536, "{name}");
+            let error = std::thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || parse(&text))
+                .unwrap()
+                .join()
+                .unwrap()
+                .unwrap_err();
+            assert!(error.contains("recurs"), "{name}: {error}");
         }
     }
 
@@ -562,6 +587,25 @@ mod tests {
         let options = resolver(Layout::default()).options(Some(&anchor)).unwrap();
         assert_eq!(options.line_width, 55);
         assert_eq!(options.indent_style, IndentStyle::Space);
+    }
+
+    #[test]
+    fn a_symlinked_file_uses_the_configuration_of_the_directory_holding_the_link() {
+        use std::os::unix::fs::symlink;
+
+        assert_no_configuration_above_temp();
+        let dir = TempDir::new();
+        dir.file("project/revofmt.toml", "indent_style = \"tab\"\n");
+        dir.file("elsewhere/a.rv", "let x = 1\n");
+        symlink(dir.path("elsewhere/a.rv"), dir.path("project/a.rv")).unwrap();
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("project/a.rv")))
+            .unwrap();
+        assert_eq!(options.indent_style, IndentStyle::Tab);
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("elsewhere/a.rv")))
+            .unwrap();
+        assert_eq!(options, FormatOptions::default());
     }
 
     #[test]
