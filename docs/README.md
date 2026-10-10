@@ -11,7 +11,7 @@
 - [Input admission policy](verification/input-limits.md): exact resource budgets.
 - [Third-party provenance](../THIRD_PARTY.md): compiler pin, vendor closure and licenses.
 - [Corpus provenance](../tests/fixtures/upstream/PROVENANCE.md): attributed inputs and reviewed outputs.
-- [Formatter configuration verification](verification/2026-10-10-formatter-configuration.md): tab indentation, blank-line limits and `revofmt.toml` at the 0.2.0 candidate, with the default-output comparison against the starting commit `f9c95329` (0.1.2 plus the frontend pin) and the unpublished-release limits.
+- [Formatter configuration verification](verification/2026-10-10-formatter-configuration.md): tab indentation, blank-line limits and `revofmt.toml` at the 0.2.0 candidate, with the default-output comparison against the starting commit `f9c95329` (0.1.2 plus the frontend pin), the final-review discovery fix, the current adapters' checks against the candidate and the unpublished-release limits.
 - [Integration verification](verification/2026-10-09-integration.md): public grammar revision, updated Zed pin and fresh pre-integration tests across the six repos.
 - [Architecture and Final Check](verification/2026-10-09-architecture-final-check.md): ownership changes, complete review scope, tests and publication limits before authorized integration.
 - [Upstream refresh verification](verification/2026-10-09-upstream-refresh.md): the preceding compiler, grammar and editor refresh stage.
