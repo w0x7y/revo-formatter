@@ -1,7 +1,7 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`.
+at revision `f0034ab75aaf49d65bc1b4769987f99380383fcb`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
@@ -34,6 +34,11 @@ runtime-facing imports in upstream diagnostics remain unused by pure parsing.
 The bridge build still needs only Zig's standard library and libc, with no new
 Cargo or Zig package dependencies. Filtered bridge tests and the native debug
 and release suites verify this build boundary.
+
+The pin moved from `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc` to
+`f0034ab75aaf49d65bc1b4769987f99380383fcb` without file changes: upstream
+changed only its README and default build features, and all 22 vendored files
+and `LICENSE.txt` match `SHA256SUMS` at both revisions.
 
 ## Source builds
 

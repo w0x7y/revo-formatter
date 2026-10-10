@@ -177,7 +177,7 @@ combinations with LF/CRLF, six widths and four indent settings. A separate
 user-supplied guarded match with a typed table pattern adds 48 combinations,
 for 12,912 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
 stdin/file/check/write behavior are tested separately. It uses the pinned
-frontend at `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`.
+frontend at `f0034ab75aaf49d65bc1b4769987f99380383fcb`.
 Gaps before loop-range dots and unknown interpolation mode suffixes are
 rejected by that frontend. `:v`, `:?`, `:p` and lone atom `#{:d}` are covered
 by complete-program regressions. Gaps after open-range dots can start loop

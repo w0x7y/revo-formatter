@@ -171,8 +171,10 @@ fn main() -> Result<(), FormatError> {
 
 ## the limits
 
-the `v0.1.2` download and current source builds support syntax pinned to revo
-revision `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`. the older `v0.1.1`
+current source builds support syntax pinned to revo revision
+`f0034ab75aaf49d65bc1b4769987f99380383fcb`. the `v0.1.2` download reports
+revision `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`, which has the same
+frontend source and syntax. the older `v0.1.1`
 download uses revision `b571298b6fc95bc863548f118354c8d077792f6f`; it does not
 include the newer range and interpolation syntax checks. run `revofmt --version`
 to see the syntax revision in your installed binary.
