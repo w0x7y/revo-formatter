@@ -1168,6 +1168,13 @@ fn gaps_follow_their_intention_comments_and_blank_line_limit() {
             Output,
         ),
         ("let x=\n\n1", defaults, "let x =\n\n1\n", Output),
+        ("fn f(x)\nx", defaults, "fn f(x) x\n", Output),
+        (
+            "consume(first_argument,second)",
+            narrow,
+            "consume(\n  first_argument,\n  second\n)\n",
+            Output,
+        ),
         // A comment keeps its line and its attachment to the preceding token.
         (
             "let x=1+ # note\n2",
