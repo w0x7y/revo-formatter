@@ -1,5 +1,5 @@
 use super::assert_preserved_and_idempotent;
-use crate::{FormatError, FormatOptions, format};
+use crate::{FormatError, FormatOptions, IndentStyle, format};
 
 struct Fixture {
     name: &'static str,
@@ -91,10 +91,19 @@ const VALID: &[Fixture] = &[
 
 fn combinations() -> impl Iterator<Item = FormatOptions> {
     [24, 80, 120].into_iter().flat_map(|line_width| {
-        [2, 4].into_iter().map(move |indent_width| FormatOptions {
-            line_width,
-            indent_width,
-            ..FormatOptions::default()
+        [2, 4].into_iter().flat_map(move |indent_width| {
+            [IndentStyle::Space, IndentStyle::Tab]
+                .into_iter()
+                .flat_map(move |indent_style| {
+                    [0, 1, 2]
+                        .into_iter()
+                        .map(move |max_blank_lines| FormatOptions {
+                            line_width,
+                            indent_width,
+                            indent_style,
+                            max_blank_lines,
+                        })
+                })
         })
     })
 }
@@ -124,11 +133,15 @@ fn corpus_preserves_source_and_is_idempotent_with_reviewed_outputs() {
             cases += 1;
         }
     }
-    assert_eq!(cases, 120);
+    assert_eq!(cases, 720);
     assert_eq!(goldens, 4);
 }
 
 fn expected_output(name: &str, options: &FormatOptions) -> Option<&'static str> {
+    // Reviewed goldens use space indentation and the default blank-line limit.
+    if options.indent_style != IndentStyle::Space || options.max_blank_lines != 1 {
+        return None;
+    }
     match (name, options.line_width, options.indent_width) {
         ("docs-proc.rv", 24, 2) => Some(include_str!(
             "../../tests/fixtures/upstream/expected/docs-proc-24-2.rv"
@@ -182,13 +195,20 @@ fn stress_options() -> impl Iterator<Item = FormatOptions> {
     [20, 24, 40, 80, 120, 240]
         .into_iter()
         .flat_map(|line_width| {
-            [1, 2, 4, 8]
-                .into_iter()
-                .map(move |indent_width| FormatOptions {
-                    line_width,
-                    indent_width,
-                    ..FormatOptions::default()
-                })
+            [1, 2, 4, 8].into_iter().flat_map(move |indent_width| {
+                [IndentStyle::Space, IndentStyle::Tab]
+                    .into_iter()
+                    .flat_map(move |indent_style| {
+                        [0, 1, 2]
+                            .into_iter()
+                            .map(move |max_blank_lines| FormatOptions {
+                                line_width,
+                                indent_width,
+                                indent_style,
+                                max_blank_lines,
+                            })
+                    })
+            })
         })
 }
 
@@ -235,6 +255,7 @@ fn match_file_read_preserves_guard_arrow_and_typed_patterns() {
     assert_eq!(output, expected);
     assert_preserved_and_idempotent(source, &output, &FormatOptions::default());
     let cases = check_stress_source("match fs.open()?:read()", source);
+    assert_eq!(cases, 288);
     eprintln!("file-read match: {cases} input/option combinations");
 }
 
@@ -245,6 +266,7 @@ fn synthetic_syntax_file_preserves_source_and_is_idempotent() {
         include_str!("../../tests/fixtures/stress/syntax.expected.rv")
     );
     let cases = check_stress_source("complete syntax.rv", STRESS_SOURCE);
+    assert_eq!(cases, 288);
     eprintln!("complete stress file: {cases} input/option combinations");
 }
 
@@ -263,6 +285,8 @@ fn synthetic_syntax_sections_preserve_source_and_are_idempotent() {
         cases += check_stress_source(name, &source);
         sections += 1;
     }
+    assert_eq!(sections, 51);
+    assert_eq!(cases, 14_688);
     eprintln!("{sections} stress sections: {cases} input/option combinations");
 }
 
@@ -323,6 +347,7 @@ fn composed_syntax_preserves_source_and_is_idempotent() {
             cases += check_stress_source(&source, &source);
         }
     }
+    assert_eq!(cases, 62_208);
     eprintln!("composed syntax: {cases} input/option combinations");
 }
 

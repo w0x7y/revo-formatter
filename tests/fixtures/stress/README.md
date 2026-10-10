@@ -31,15 +31,16 @@ preferred reflow independently. Width remains a soft target.
 The library tests in [corpus.rs](../../../src/tests/corpus.rs) check the complete
 file, 51 isolated sections including module documentation, and 36 expressions
 in six surrounding constructs. Every source runs with LF and CRLF at widths
-20, 24, 40, 80, 120 and 240 and indent widths 1, 2, 4 and 8. This gives
-12,864 valid input/option combinations. The separate user-supplied
-[file-read match](match-file-read.rv) adds 48 combinations, for 12,912 total.
+20, 24, 40, 80, 120 and 240, indent widths 1, 2, 4 and 8, space and tab
+indentation, and blank-line limits 0, 1 and 2 (144 option sets). This gives
+77,184 valid input/option combinations. The separate user-supplied
+[file-read match](match-file-read.rv) adds 288 combinations, for 77,472 total.
 It combines propagation followed by a method call, guarded `|` arms with an
 arrow on the next line, a typed table pattern and string interpolation; its
 default layout is checked against literal expected output. Each result passes the real
 interleaved token/comment tape and full AST preservation check, then a second
 formatting pass must return identical bytes. Fifteen invalid near misses are
-tested at all 24 option combinations, giving another 360 rejection checks.
+tested at all 144 option sets, giving another 2,160 rejection checks.
 
 The CLI process test checks stdin, repeated formatting, file printing,
 `--check`, `--write`, and a final clean `--check` at three option pairs with

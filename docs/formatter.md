@@ -161,10 +161,12 @@ The valid fixtures include the demo, pipes, procedural macros, types, control
 flow, match arms, multiline literals and comments.
 
 Each valid input is checked at line widths 24, 80 and 120 with indent widths
-2 and 4, giving 120 input/option combinations. Each combination produces one
+2 and 4, space and tab indentation, and blank-line limits 0, 1 and 2, giving
+720 input/option combinations. Each combination produces one
 formatter result, checked for reparsing, exact
 interleaved raw token/comment bytes, complete AST equivalence modulo coordinates,
-and idempotence. Four of those same results also check reviewed expected output
+and idempotence. Four of those same results, at space indentation and the
+default blank-line limit of 1, also check reviewed expected output
 for signature/table reflow, block indentation and match-arm layout. The private
 preservation and corpus tests run once in library test modules; process-level
 CLI checks remain integration tests.
@@ -174,10 +176,11 @@ it does not establish exhaustive syntax coverage or uniform layout quality.
 
 The separate [synthetic syntax stress corpus](../tests/fixtures/stress/README.md)
 adds a readable 50-section file and reviewed default output. Whole-file,
-isolated-section and composed-expression tests cover 12,864 valid input/option
-combinations with LF/CRLF, six widths and four indent settings. A separate
-user-supplied guarded match with a typed table pattern adds 48 combinations,
-for 12,912 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
+isolated-section and composed-expression tests cover 77,184 valid input/option
+combinations with LF/CRLF, six widths, four indent widths, both indent styles
+and blank-line limits 0, 1 and 2. A separate
+user-supplied guarded match with a typed table pattern adds 288 combinations,
+for 77,472 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
 stdin/file/check/write behavior are tested separately. It uses the pinned
 frontend at `f0034ab75aaf49d65bc1b4769987f99380383fcb`.
 Gaps before loop-range dots and unknown interpolation mode suffixes are
