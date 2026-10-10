@@ -397,29 +397,68 @@ mod write_batch {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::config::LayoutFlags;
+
+        struct Scratch(PathBuf);
+
+        impl Scratch {
+            fn new() -> Self {
+                let directory = std::env::temp_dir()
+                    .join(format!("revofmt-write-batch-{}", std::process::id()));
+                fs::create_dir(&directory).unwrap();
+                Self(directory)
+            }
+        }
+
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn names(directory: &Path) -> Vec<String> {
+            let mut names = fs::read_dir(directory)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        }
 
         #[test]
-        fn replacement_cleans_temporary_when_destination_is_no_longer_regular() {
-            let directory = std::env::temp_dir().join(format!(
-                "revofmt-replacement-{}-{}",
-                std::process::id(),
-                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&directory).unwrap();
-            let destination = directory.join("source.rv");
-            fs::create_dir(&destination).unwrap();
-            let result = atomic_replace(&Replacement {
-                path: destination.clone(),
-                source: "let x = 1\n".into(),
-                permissions: fs::metadata(&destination).unwrap().permissions(),
-            });
-            let remaining = fs::read_dir(&directory)
-                .unwrap()
-                .map(|entry| entry.unwrap().path())
-                .collect::<Vec<_>>();
-            fs::remove_dir_all(&directory).unwrap();
-            assert!(result.unwrap_err().contains("regular file"));
-            assert_eq!(remaining, vec![destination]);
+        fn a_destination_that_stops_being_a_file_fails_after_earlier_replacements() {
+            let scratch = Scratch::new();
+            let first = scratch.0.join("first.rv");
+            let second = scratch.0.join("second.rv");
+            fs::write(&first, "let x=1").unwrap();
+            fs::write(&second, "let y=2").unwrap();
+            let mut resolver = Resolver::new(LayoutFlags::default(), false, false);
+            let batch =
+                PreparedBatch::prepare(&[first.clone(), second.clone()], &mut resolver).unwrap();
+            assert_eq!(fs::read(&first).unwrap(), b"let x=1");
+            assert_eq!(fs::read(&second).unwrap(), b"let y=2");
+            assert_eq!(names(&scratch.0), ["first.rv", "second.rv"]);
+
+            let moved = scratch.0.join("moved.rv");
+            fs::rename(&second, &moved).unwrap();
+            fs::create_dir(&second).unwrap();
+            let error = batch.apply().unwrap_err();
+
+            assert_eq!(fs::read(&first).unwrap(), b"let x = 1\n");
+            assert_eq!(fs::read(&moved).unwrap(), b"let y=2");
+            // The recheck's own diagnostic already names the path, which the
+            // batch prefixes again.
+            assert_eq!(
+                error,
+                format!(
+                    "{second}: {second}: --write requires a regular file and rejects symlinks\n\
+                     Writes completed before this failure:\n  {first}",
+                    first = first.display(),
+                    second = second.display(),
+                )
+            );
+            assert_eq!(names(&scratch.0), ["first.rv", "moved.rv", "second.rv"]);
+            assert!(names(&second).is_empty());
         }
     }
 }
