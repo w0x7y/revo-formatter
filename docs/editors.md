@@ -18,12 +18,14 @@ Zed use a separately installed CLI. The verified formatter platform is native
 Linux x86_64 GNU. The [formatter README](../README.md#install) covers binary
 installation and source builds.
 
-The configuration-aware behavior described below is on each adapter
-repository's `main` branch. New adapter releases are not yet published; until
-they are, published adapter releases still send the pre-0.2.0 arguments,
-`--indent-width N --line-width N -`, and do not read `revofmt.toml`. The Zed
-extension on `main` downloads the v0.3.0 language server, which becomes
-available when that release is published.
+The configuration-aware behavior described below ships in
+[revofmt.nvim v0.2.0](https://github.com/w0x7y/revofmt.nvim/releases/tag/v0.2.0),
+the [VS Code extension 0.2.0](https://github.com/w0x7y/revofmt-vscode/releases/tag/v0.2.0)
+VSIX and [revofmt-zed v0.3.0](https://github.com/w0x7y/revofmt-zed/releases/tag/v0.3.0).
+Older adapter releases send the pre-0.2.0 arguments,
+`--indent-width N --line-width N -`, and do not read `revofmt.toml`. The VS Code
+Marketplace listing and the Zed extension registry are updated separately from
+these GitHub releases.
 
 ## CLI contract
 
