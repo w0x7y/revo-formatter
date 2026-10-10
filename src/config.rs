@@ -149,8 +149,10 @@ fn at(path: &Path, message: impl std::fmt::Display) -> String {
     format!("{}: {message}", path.display())
 }
 
-/// The absolute directory where discovery starts for `anchor`: its canonical
-/// parent, or the lexical absolute parent when that cannot be canonicalized.
+/// The absolute directory where discovery starts for `anchor`: the canonical
+/// form of the deepest existing ancestor of its parent directory. Directories
+/// that do not exist cannot hold a configuration, and walking their lexical
+/// parents could leave the real tree through `..` or a symbolic link.
 fn start_directory(anchor: &Path) -> Result<PathBuf, String> {
     let parent = anchor.parent().unwrap_or(anchor);
     let parent = if parent.as_os_str().is_empty() {
@@ -165,7 +167,12 @@ fn start_directory(anchor: &Path) -> Result<PathBuf, String> {
             .map_err(|error| format!("cannot determine the current directory: {error}"))?
             .join(parent)
     };
-    Ok(fs::canonicalize(&joined).unwrap_or(joined))
+    for dir in joined.ancestors() {
+        if let Ok(canonical) = fs::canonicalize(dir) {
+            return Ok(canonical);
+        }
+    }
+    Ok(joined)
 }
 
 /// Read the configuration file in `dir`, if any. A missing entry is `Ok(None)`.
@@ -173,8 +180,8 @@ fn read_in(dir: &Path) -> Result<Found, String> {
     let path = dir.join(FILE_NAME);
     match fs::symlink_metadata(&path) {
         Ok(_) => {}
-        // A lexical directory that does not exist, or a file used as a
-        // directory, cannot contain a configuration.
+        // A start directory that is really a file, or an ancestor that is,
+        // cannot contain a configuration.
         Err(error) if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
             return Ok(None);
         }
@@ -377,8 +384,9 @@ mod tests {
         assert_eq!(summary(unanchored_preferred), (IndentStyle::Space, 80, 0));
     }
 
-    #[test]
-    fn no_configuration_uses_flags_and_defaults() {
+    /// Fail when a configuration above the temporary directory would make a
+    /// "no configuration" expectation meaningless.
+    fn assert_no_configuration_above_temp() {
         let temp = std::env::temp_dir().canonicalize().unwrap();
         for ancestor in temp.ancestors() {
             let stray = ancestor.join(FILE_NAME);
@@ -389,6 +397,11 @@ mod tests {
                 stray.display()
             );
         }
+    }
+
+    #[test]
+    fn no_configuration_uses_flags_and_defaults() {
+        assert_no_configuration_above_temp();
         let dir = TempDir::new();
         fs::create_dir_all(dir.path("empty")).unwrap();
         let flags = Layout {
@@ -514,12 +527,68 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_parent_directory_uses_the_lexical_path() {
+    fn a_missing_subdirectory_of_a_configured_project_finds_its_configuration() {
         let dir = TempDir::new();
         dir.file(FILE_NAME, "line_width = 70\n");
         let options = resolver(Layout::default())
             .options(Some(&dir.path("not/created/a.rv")))
             .unwrap();
         assert_eq!(options.line_width, 70);
+    }
+
+    #[test]
+    fn a_file_used_as_a_directory_falls_back_to_its_ancestors() {
+        let dir = TempDir::new();
+        dir.file(FILE_NAME, "line_width = 70\n");
+        dir.file("plain.txt", "not a directory");
+        let options = resolver(Layout::default())
+            .options(Some(&dir.path("plain.txt/a.rv")))
+            .unwrap();
+        assert_eq!(options.line_width, 70);
+    }
+
+    #[test]
+    fn dot_dot_through_a_missing_directory_is_judged_by_the_real_location() {
+        assert_no_configuration_above_temp();
+        let dir = TempDir::new();
+        dir.file("project_a/revofmt.toml", "indent_style = \"tab\"\n");
+        fs::create_dir_all(dir.path("project_b")).unwrap();
+        let anchor = dir.path("project_a/../project_b/new/x.rv");
+
+        let options = resolver(Layout::default()).options(Some(&anchor)).unwrap();
+        assert_eq!(options, FormatOptions::default());
+
+        dir.file("project_b/revofmt.toml", "line_width = 55\n");
+        let options = resolver(Layout::default()).options(Some(&anchor)).unwrap();
+        assert_eq!(options.line_width, 55);
+        assert_eq!(options.indent_style, IndentStyle::Space);
+    }
+
+    #[test]
+    fn a_symlink_out_of_the_project_is_judged_by_the_real_location() {
+        use std::os::unix::fs::symlink;
+
+        assert_no_configuration_above_temp();
+        let dir = TempDir::new();
+        dir.file("project/revofmt.toml", "indent_style = \"tab\"\n");
+        fs::create_dir_all(dir.path("outside")).unwrap();
+        symlink(dir.path("outside"), dir.path("project/link")).unwrap();
+        let anchors = [
+            dir.path("project/link/new/x.rv"),
+            dir.path("project/../outside/new/x.rv"),
+            dir.path("project/link/x.rv"),
+        ];
+
+        for anchor in &anchors {
+            let options = resolver(Layout::default()).options(Some(anchor)).unwrap();
+            assert_eq!(options, FormatOptions::default(), "{}", anchor.display());
+        }
+
+        dir.file("outside/revofmt.toml", "line_width = 55\n");
+        for anchor in &anchors {
+            let options = resolver(Layout::default()).options(Some(anchor)).unwrap();
+            assert_eq!(options.line_width, 55, "{}", anchor.display());
+            assert_eq!(options.indent_style, IndentStyle::Space);
+        }
     }
 }

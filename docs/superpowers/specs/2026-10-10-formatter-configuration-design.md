@@ -124,11 +124,12 @@ that feature. A unit test confirms the error.
 
 ### Discovery
 
-For each input, discovery starts at the canonical form of the input's parent
-directory and walks its ancestors to the filesystem root. The first
-`revofmt.toml` found applies to that input. If the parent directory cannot be
-canonicalized (for example, a `--stdin-filepath` naming a directory that does
-not exist), discovery uses the lexical absolute path instead.
+For each input, discovery starts at the canonical form of the deepest existing
+ancestor of the input's parent directory and walks its ancestors to the
+filesystem root. The first `revofmt.toml` found applies to that input. A
+`--stdin-filepath` naming directories that do not exist is therefore judged by
+the real location of the nearest directory that does, never by a lexical walk
+through `..` components or symbolic links.
 
 Results, including "no configuration" and errors, are cached per directory for
 one CLI run, so a configuration file is read and parsed at most once. In
