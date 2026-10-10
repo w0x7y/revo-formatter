@@ -94,6 +94,7 @@ fn combinations() -> impl Iterator<Item = FormatOptions> {
         [2, 4].into_iter().map(move |indent_width| FormatOptions {
             line_width,
             indent_width,
+            ..FormatOptions::default()
         })
     })
 }
@@ -186,6 +187,7 @@ fn stress_options() -> impl Iterator<Item = FormatOptions> {
                 .map(move |indent_width| FormatOptions {
                     line_width,
                     indent_width,
+                    ..FormatOptions::default()
                 })
         })
 }

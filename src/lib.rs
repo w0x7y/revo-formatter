@@ -9,27 +9,45 @@ pub const UPSTREAM_REVISION: &str = "f0034ab75aaf49d65bc1b4769987f99380383fcb";
 /// Maximum source length, in UTF-8 bytes. Syntax complexity has additional limits.
 pub const MAX_SOURCE_BYTES: usize = 256 * 1024;
 
+/// Leading indentation written for each nesting level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndentStyle {
+    /// `indent_width` spaces per level.
+    #[default]
+    Space,
+    /// One tab per level; `indent_width` is its display width for fit decisions.
+    Tab,
+}
+
 /// Layout settings. Width is a soft limit for opaque tokens and sensitive syntax.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatOptions {
     pub indent_width: usize,
     pub line_width: usize,
+    pub indent_style: IndentStyle,
+    /// Most consecutive blank lines kept between lines, `0..=8`.
+    pub max_blank_lines: usize,
 }
 impl Default for FormatOptions {
     fn default() -> Self {
         Self {
             indent_width: 2,
             line_width: 80,
+            indent_style: IndentStyle::Space,
+            max_blank_lines: 1,
         }
     }
 }
 
 impl FormatOptions {
-    /// Check the supported indentation and line-width ranges.
+    /// Check the supported indentation, line-width and blank-line ranges.
     pub fn validate(&self) -> Result<(), FormatError> {
-        if !(1..=8).contains(&self.indent_width) || !(20..=240).contains(&self.line_width) {
+        if !(1..=8).contains(&self.indent_width)
+            || !(20..=240).contains(&self.line_width)
+            || self.max_blank_lines > 8
+        {
             return Err(FormatError::InvalidOptions(
-                "indent width must be 1..=8 and line width 20..=240".into(),
+                "indent width must be 1..=8, line width 20..=240 and max blank lines 0..=8".into(),
             ));
         }
         Ok(())

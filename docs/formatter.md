@@ -113,12 +113,14 @@ revofmt = { path = "/absolute/path/to/revo-formatter" }
 ```
 
 ```rust
-use revofmt::{FormatError, FormatOptions, format};
+use revofmt::{FormatError, FormatOptions, IndentStyle, format};
 
 fn main() -> Result<(), FormatError> {
     let options = FormatOptions {
         indent_width: 2,
         line_width: 80,
+        indent_style: IndentStyle::Space,
+        max_blank_lines: 1,
     };
     let output = format("let x=1", &options)?;
     assert_eq!(output, "let x = 1\n");

@@ -130,6 +130,7 @@ fn stress_syntax_survives_stdin_file_check_and_write() {
                     &revofmt::FormatOptions {
                         line_width: line_width.parse().unwrap(),
                         indent_width: indent_width.parse().unwrap(),
+                        ..revofmt::FormatOptions::default()
                     }
                 )
                 .unwrap()

@@ -1,5 +1,5 @@
 use super::assert_preserved_and_idempotent;
-use crate::{FormatError, FormatOptions, format};
+use crate::{FormatError, FormatOptions, IndentStyle, format};
 
 fn check(source: &str, expected: &str, options: FormatOptions) {
     let output = format(source, &options).unwrap_or_else(|e| panic!("{source:?}: {e}"));
@@ -606,6 +606,7 @@ fn upstream_interpolation_and_range_boundaries_preserve_programs() {
             let options = FormatOptions {
                 line_width,
                 indent_width: 2,
+                ..FormatOptions::default()
             };
             let output = format(source, &options).unwrap();
             assert_preserved_and_idempotent(source, &output, &options);
@@ -657,18 +658,22 @@ fn validates_options_before_syntax_and_reports_malformed_input() {
         FormatOptions {
             indent_width: 0,
             line_width: 80,
+            ..FormatOptions::default()
         },
         FormatOptions {
             indent_width: 9,
             line_width: 80,
+            ..FormatOptions::default()
         },
         FormatOptions {
             indent_width: 2,
             line_width: 19,
+            ..FormatOptions::default()
         },
         FormatOptions {
             indent_width: 2,
             line_width: 241,
+            ..FormatOptions::default()
         },
     ] {
         assert!(matches!(
@@ -698,6 +703,7 @@ fn validates_options_before_syntax_and_reports_malformed_input() {
             FormatOptions {
                 indent_width,
                 line_width,
+                ..FormatOptions::default()
             },
         );
     }
@@ -825,6 +831,7 @@ fn match_arm_delimiter_envelopes_compose_indentation() {
             FormatOptions {
                 indent_width: 2,
                 line_width: 24,
+                ..FormatOptions::default()
             },
         );
         check(
@@ -833,6 +840,7 @@ fn match_arm_delimiter_envelopes_compose_indentation() {
             FormatOptions {
                 indent_width: 4,
                 line_width: 80,
+                ..FormatOptions::default()
             },
         );
     }
@@ -842,6 +850,7 @@ fn match_arm_delimiter_envelopes_compose_indentation() {
         FormatOptions {
             indent_width: 2,
             line_width: 24,
+            ..FormatOptions::default()
         },
     );
     check(
@@ -850,6 +859,7 @@ fn match_arm_delimiter_envelopes_compose_indentation() {
         FormatOptions {
             indent_width: 4,
             line_width: 80,
+            ..FormatOptions::default()
         },
     );
 }
@@ -862,6 +872,7 @@ fn call_arm_delimiters_compose_with_reflow() {
         FormatOptions {
             indent_width: 2,
             line_width: 24,
+            ..FormatOptions::default()
         },
     );
     check(
@@ -870,6 +881,7 @@ fn call_arm_delimiters_compose_with_reflow() {
         FormatOptions {
             indent_width: 4,
             line_width: 24,
+            ..FormatOptions::default()
         },
     );
 }
@@ -932,6 +944,7 @@ fn statement_rhs_envelopes_compose_indentation() {
                     FormatOptions {
                         indent_width,
                         line_width,
+                        ..FormatOptions::default()
                     },
                 );
             }
@@ -1036,4 +1049,29 @@ fn binary_segments_compose_with_nested_scopes_and_hard_breaks() {
             },
         );
     }
+}
+
+#[test]
+fn new_options_default_to_current_layout_and_validate_ranges() {
+    let defaults = FormatOptions::default();
+    assert_eq!(defaults.indent_style, IndentStyle::Space);
+    assert_eq!(defaults.max_blank_lines, 1);
+    for max_blank_lines in [0, 8] {
+        assert!(
+            FormatOptions {
+                max_blank_lines,
+                ..defaults
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+    assert!(matches!(
+        FormatOptions {
+            max_blank_lines: 9,
+            ..defaults
+        }
+        .validate(),
+        Err(FormatError::InvalidOptions(_))
+    ));
 }
