@@ -1,7 +1,7 @@
 //! Whitespace policy over the original, interleaved token tape.
 use crate::{
     FormatOptions,
-    document::{self, Doc},
+    document::{self, Doc, Indentation},
     layout_index::{LayoutIndex, Scope, ScopeKind},
     oracle::{AnalyzedSource, SourceToken},
 };
@@ -31,7 +31,11 @@ pub(crate) fn layout(
         conservative,
     };
     let doc = Doc::concat(vec![builder.sequence(0, builder.tokens.len()), Doc::Hard]);
-    document::render(&doc, options.indent_width, options.line_width, ending)
+    let indentation = Indentation {
+        style: options.indent_style,
+        columns: options.indent_width,
+    };
+    document::render(&doc, indentation, options.line_width, ending)
 }
 
 // Select the first layout newline, ignoring newline bytes inside opaque tokens.

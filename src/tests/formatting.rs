@@ -1075,3 +1075,86 @@ fn new_options_default_to_current_layout_and_validate_ranges() {
         Err(FormatError::InvalidOptions(_))
     ));
 }
+
+fn tabs(indent_width: usize, line_width: usize) -> FormatOptions {
+    FormatOptions {
+        indent_width,
+        line_width,
+        indent_style: IndentStyle::Tab,
+        ..FormatOptions::default()
+    }
+}
+
+#[test]
+fn tab_indentation_writes_one_tab_per_level() {
+    check(
+        "fn f() do\nif x do\nfoo()\nend\nend",
+        "fn f() do\n\tif x do\n\t\tfoo()\n\tend\nend\n",
+        tabs(2, 80),
+    );
+    check(
+        "do\nlet total=first_value+second_value+third_value\nend",
+        "do\n\tlet total = first_value +\n\t\tsecond_value +\n\t\tthird_value\nend\n",
+        tabs(4, 30),
+    );
+    check(
+        "let f = match x\n| 1 => alpha()\n| _ => beta()",
+        "let f = match x\n\t| 1 => alpha()\n\t| _ => beta()\n",
+        tabs(4, 80),
+    );
+    // Conservative fallback (lexical join) inside a block.
+    check(
+        "do\nlet x=1 .field\nend",
+        "do\n\tlet x=1 .field\nend\n",
+        tabs(2, 80),
+    );
+}
+
+#[test]
+fn tab_indentation_keeps_opaque_interiors() {
+    check(
+        "do\nlet s=\"\"\"\n    first\n      second\n    \"\"\"\nconsume(s)\nend",
+        "do\n\tlet s = \"\"\"\n    first\n      second\n    \"\"\"\n\tconsume(s)\nend\n",
+        tabs(2, 80),
+    );
+    check(
+        "do\n#* doc\n   line *#\nfn f() 1\nend",
+        "do\n\t#* doc\n   line *#\n\tfn f() 1\nend\n",
+        tabs(2, 80),
+    );
+}
+
+#[test]
+fn a_tab_counts_as_indent_width_columns_when_fitting() {
+    // 4 + 20 columns fits 24; 4 + 21 does not. A one-column tab would fit both.
+    check(
+        "do\nconsume(alpha, beta)\nend",
+        "do\n\tconsume(alpha, beta)\nend\n",
+        tabs(4, 24),
+    );
+    check(
+        "do\nconsume(alpha, betas)\nend",
+        "do\n\tconsume(\n\t\talpha,\n\t\tbetas\n\t)\nend\n",
+        tabs(4, 24),
+    );
+    let source = include_str!("../../tests/fixtures/stress/syntax.rv");
+    for (line_width, indent_width) in [(24, 4), (80, 2)] {
+        let spaces = format(
+            source,
+            &FormatOptions {
+                line_width,
+                indent_width,
+                ..FormatOptions::default()
+            },
+        )
+        .unwrap();
+        let tabbed = format(source, &tabs(indent_width, line_width)).unwrap();
+        // Identical breaks: only leading whitespace may differ.
+        assert!(
+            spaces
+                .lines()
+                .map(str::trim_start)
+                .eq(tabbed.lines().map(str::trim_start))
+        );
+    }
+}

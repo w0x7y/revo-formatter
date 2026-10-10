@@ -1,4 +1,5 @@
 //! Borrowed document algebra and display-column-aware group rendering.
+use crate::IndentStyle;
 use unicode_width::UnicodeWidthStr;
 
 pub(crate) enum Doc<'a> {
@@ -99,12 +100,25 @@ impl<'a> Doc<'a> {
     }
 }
 
-pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &str) -> String {
+/// How one indentation level is written and how many display columns it
+/// occupies when deciding whether text fits.
+#[derive(Clone, Copy)]
+pub(crate) struct Indentation {
+    pub(crate) style: IndentStyle,
+    pub(crate) columns: usize,
+}
+
+pub(crate) fn render(
+    doc: &Doc<'_>,
+    indentation: Indentation,
+    width: usize,
+    ending: &str,
+) -> String {
     struct Renderer<'a> {
         output: String,
         column: usize,
         pending_indent: bool,
-        indent_width: usize,
+        indentation: Indentation,
         width: usize,
         ending: &'a str,
     }
@@ -116,8 +130,15 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
                         return;
                     }
                     if self.pending_indent {
-                        self.column = depth * self.indent_width;
-                        self.output.extend(std::iter::repeat_n(' ', self.column));
+                        self.column = depth * self.indentation.columns;
+                        match self.indentation.style {
+                            IndentStyle::Space => {
+                                self.output.extend(std::iter::repeat_n(' ', self.column));
+                            }
+                            IndentStyle::Tab => {
+                                self.output.extend(std::iter::repeat_n('\t', depth));
+                            }
+                        }
                         self.pending_indent = false;
                     }
                     self.output.push_str(text);
@@ -146,7 +167,7 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
                 }
                 Doc::Group(group) => {
                     let column = if self.pending_indent {
-                        depth * self.indent_width
+                        depth * self.indentation.columns
                     } else {
                         self.column
                     };
@@ -165,7 +186,7 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
                     self.write(first, depth, flat);
                     for chunk in rest {
                         let column = if self.pending_indent {
-                            (depth + 1) * self.indent_width
+                            (depth + 1) * self.indentation.columns
                         } else {
                             self.column
                         };
@@ -182,7 +203,7 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
         output: String::new(),
         column: 0,
         pending_indent: true,
-        indent_width,
+        indentation,
         width,
         ending,
     };
@@ -194,6 +215,11 @@ pub(crate) fn render(doc: &Doc<'_>, indent_width: usize, width: usize, ending: &
 mod tests {
     use super::*;
 
+    const SPACES: Indentation = Indentation {
+        style: IndentStyle::Space,
+        columns: 2,
+    };
+
     #[test]
     fn attached_suffix_reserves_columns_for_an_ungrouped_fill() {
         let head = Doc::fill(
@@ -202,7 +228,24 @@ mod tests {
         );
         let suffix = Doc::Text(" do");
         let doc = head.followed_by(suffix);
-        assert_eq!(render(&doc, 2, 24, "\n"), "if first_argument +\n  22 do");
-        assert_eq!(render(&doc, 2, 80, "\n"), "if first_argument + 22 do");
+        assert_eq!(
+            render(&doc, SPACES, 24, "\n"),
+            "if first_argument +\n  22 do"
+        );
+        assert_eq!(render(&doc, SPACES, 80, "\n"), "if first_argument + 22 do");
+    }
+
+    #[test]
+    fn tab_indentation_reserves_its_display_width() {
+        let head = Doc::fill(
+            Doc::Text("if first_argument +"),
+            vec![Doc::concat(vec![Doc::Soft(" "), Doc::Text("22")]).group()],
+        );
+        let doc = head.followed_by(Doc::Text(" do"));
+        let tab = Indentation {
+            style: IndentStyle::Tab,
+            columns: 2,
+        };
+        assert_eq!(render(&doc, tab, 24, "\n"), "if first_argument +\n\t22 do");
     }
 }
