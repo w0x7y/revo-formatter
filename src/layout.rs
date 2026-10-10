@@ -8,8 +8,9 @@ use crate::{
 
 /// Conservative mode retains every gap's empty/nonempty and same/different-line
 /// decisions. It only canonicalizes whitespace and indentation, capping blank
-/// lines at one. This preserves all pinned parser whitespace branches; callers
-/// still verify token bytes and the complete AST before using the result.
+/// lines at the configured limit. This preserves all pinned parser whitespace
+/// branches; callers still verify token bytes and the complete AST before using
+/// the result.
 pub(crate) fn layout(
     analysis: &AnalyzedSource<'_>,
     options: &FormatOptions,
@@ -29,6 +30,7 @@ pub(crate) fn layout(
         tokens: analysis.tokens(),
         index: LayoutIndex::new(analysis),
         conservative,
+        max_newlines: options.max_blank_lines + 1,
     };
     let doc = Doc::concat(vec![builder.sequence(0, builder.tokens.len()), Doc::Hard]);
     let indentation = Indentation {
@@ -65,6 +67,7 @@ struct Builder<'a> {
     tokens: &'a [SourceToken],
     index: LayoutIndex,
     conservative: bool,
+    max_newlines: usize,
 }
 impl<'a> Builder<'a> {
     fn text(&self, i: usize) -> &'a str {
@@ -82,7 +85,7 @@ impl<'a> Builder<'a> {
             .bytes()
             .filter(|b| *b == b'\n')
             .count()
-            .clamp(1, 2);
+            .clamp(1, self.max_newlines);
         Doc::concat((0..count).map(|_| Doc::Hard).collect())
     }
     fn separator(&self, i: usize) -> Doc<'a> {

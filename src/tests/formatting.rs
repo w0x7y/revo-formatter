@@ -1158,3 +1158,44 @@ fn a_tab_counts_as_indent_width_columns_when_fitting() {
         );
     }
 }
+
+fn blank_lines(max_blank_lines: usize) -> FormatOptions {
+    FormatOptions {
+        max_blank_lines,
+        ..FormatOptions::default()
+    }
+}
+
+#[test]
+fn blank_line_limit_caps_statement_and_block_gaps() {
+    let statements = "let a=1\n\n\n\nlet b=2";
+    check(statements, "let a = 1\nlet b = 2\n", blank_lines(0));
+    check(statements, "let a = 1\n\nlet b = 2\n", blank_lines(1));
+    check(statements, "let a = 1\n\n\nlet b = 2\n", blank_lines(2));
+    let block = "do\n\n\nfoo()\n\n\n\nbar()\n\nend";
+    check(block, "do\n  foo()\n  bar()\nend\n", blank_lines(0));
+    check(block, "do\n\n  foo()\n\n  bar()\n\nend\n", blank_lines(1));
+    check(
+        block,
+        "do\n\n\n  foo()\n\n\n  bar()\n\nend\n",
+        blank_lines(2),
+    );
+}
+
+#[test]
+fn blank_line_limit_applies_to_lists_comments_and_crlf() {
+    let list = "consume(first,\n\n\nsecond)";
+    // With no blank line left, the fixed-point pass recompacts the list.
+    check(list, "consume(first, second)\n", blank_lines(0));
+    check(
+        list,
+        "consume(\n  first,\n\n\n  second\n)\n",
+        blank_lines(2),
+    );
+    let comment = "foo() # note\n\n\n\nbar()";
+    check(comment, "foo() # note\nbar()\n", blank_lines(0));
+    check(comment, "foo() # note\n\n\nbar()\n", blank_lines(2));
+    let crlf = "let a=1\r\n\r\n\r\n\r\nlet b=2";
+    check(crlf, "let a = 1\r\nlet b = 2\r\n", blank_lines(0));
+    check(crlf, "let a = 1\r\n\r\n\r\nlet b = 2\r\n", blank_lines(2));
+}
