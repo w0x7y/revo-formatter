@@ -18,11 +18,12 @@ Zed use a separately installed CLI. The verified formatter platform is native
 Linux x86_64 GNU. The [formatter README](../README.md#install) covers binary
 installation and source builds.
 
-The configuration-aware behavior described below is implemented on a
-`formatter-configuration` branch in each adapter repository. Those branches are
-not yet pushed or released. Published adapter releases still send the
-pre-0.2.0 arguments, `--indent-width N --line-width N -`, and do not read
-`revofmt.toml`.
+The configuration-aware behavior described below is on each adapter
+repository's `main` branch. New adapter releases are not yet published; until
+they are, published adapter releases still send the pre-0.2.0 arguments,
+`--indent-width N --line-width N -`, and do not read `revofmt.toml`. The Zed
+extension on `main` downloads the v0.3.0 language server, which becomes
+available when that release is published.
 
 ## CLI contract
 
@@ -95,9 +96,8 @@ alongside it, then apply the formatter settings from `revofmt-zed`.
 
 First rebuild the formatter using the [main verification commands](../README.md#development-and-verification).
 When a CLI change affects an adapter, run that repository's documented checks
-against the rebuilt executable. Until the adapter changes are merged, check out
-each repository's `formatter-configuration` branch first. With the repositories
-cloned under `~/GitRepo`, these commands run from the formatter repository root:
+against the rebuilt executable. With the repositories cloned under `~/GitRepo`,
+these commands run from the formatter repository root:
 
 ```sh
 REVOFMT_BIN="$PWD/target/release/revofmt" ~/GitRepo/revofmt.nvim/scripts/verify
