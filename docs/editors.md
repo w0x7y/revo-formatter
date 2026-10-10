@@ -18,21 +18,63 @@ Zed use a separately installed CLI. The verified formatter platform is native
 Linux x86_64 GNU. The [formatter README](../README.md#install) covers binary
 installation and source builds.
 
+The configuration-aware behavior described below is implemented on a
+`formatter-configuration` branch in each adapter repository. Those branches are
+not yet pushed or released. Published adapter releases still send the
+pre-0.2.0 arguments, `--indent-width N --line-width N -`, and do not read
+`revofmt.toml`.
+
 ## CLI contract
 
-Adapters send the complete current unsaved buffer to stdin in print mode:
+Adapters send the complete current unsaved buffer to stdin in print mode. The
+argument array always has this order, with `--stdin-filepath` present only for
+real files:
 
 ```sh
-revofmt --indent-width 2 --line-width 80 -
+revofmt --prefer-config --stdin-filepath /project/src/main.rv \
+  --indent-width 2 --line-width 80 --indent-style space --max-blank-lines 1 -
+```
+
+For a buffer without a file path, the same array omits the `--stdin-filepath`
+pair:
+
+```sh
+revofmt --prefer-config --indent-width 2 --line-width 80 \
+  --indent-style space --max-blank-lines 1 -
 ```
 
 They start an executable with an argument array and use stdout only after a
 successful exit. They never invoke `--write` or format a saved copy instead of
 the current buffer. Save formatting stays opt-in.
 
-Indentation accepts 1 through 8 spaces; line width accepts 20 through 240 columns
-and is a soft target. The CLI validates token/comment bytes, syntax equivalence
-modulo source coordinates and idempotence. Its [input admission limits](verification/input-limits.md)
+- **`--prefer-config`.** When a `revofmt.toml` applies to the buffer, it
+  replaces all four layout settings from the editor. Keys the file omits use
+  the formatter's built-in defaults, not the editor's values, so the editor
+  agrees with a flagless `revofmt --check` in CI. When no file applies, the
+  editor settings apply. The [configuration reference](formatter.md#configuration)
+  describes discovery and [precedence](formatter.md#precedence).
+- **`--stdin-filepath`.** It is the path from which the formatter looks for
+  `revofmt.toml`, and it need not exist on disk, so an unsaved new file still
+  finds its project. Adapters send it only for real files: Neovim for a buffer
+  with an empty `buftype` and a nonempty name that is not a `scheme://` URI,
+  expanded to an absolute path; VS Code for `file:` URIs, using `fsPath`; Zed
+  for `file:` URIs, converted with `fileURLToPath`. Unnamed, scratch, virtual
+  and remote documents omit it. Without a path the formatter performs no
+  discovery and the editor settings apply.
+- **Minimum version.** Adapters on this contract require revofmt 0.2.0 or
+  later. An older CLI does not know `--prefer-config`, so it exits with code 2
+  (`unrecognized option: --prefer-config`) and nothing is formatted. Zed shows
+  exit-2 stderr, such as that message or a malformed `revofmt.toml`, as an
+  error message.
+- **Ranges.** The indent style is `space` or `tab`. Indentation is 1 through 8
+  columns per level; a tab counts as that many columns when fitting lines. The
+  line width is 20 through 240 columns and is a soft target. Blank lines are
+  0 through 8, and 1 is the default. Each adapter validates its own settings
+  against these ranges, and the CLI applies the same ranges to flags and
+  `revofmt.toml`.
+
+The CLI validates token/comment bytes, syntax equivalence modulo source
+coordinates and idempotence. Its [input admission limits](verification/input-limits.md)
 apply in every editor. [Exit codes](formatter.md#cli-usage) and stderr diagnostics
 are part of the public integration boundary.
 
@@ -53,8 +95,9 @@ alongside it, then apply the formatter settings from `revofmt-zed`.
 
 First rebuild the formatter using the [main verification commands](../README.md#development-and-verification).
 When a CLI change affects an adapter, run that repository's documented checks
-against the rebuilt executable. With the repositories cloned under `~/GitRepo`,
-these commands run from the formatter repository root:
+against the rebuilt executable. Until the adapter changes are merged, check out
+each repository's `formatter-configuration` branch first. With the repositories
+cloned under `~/GitRepo`, these commands run from the formatter repository root:
 
 ```sh
 REVOFMT_BIN="$PWD/target/release/revofmt" ~/GitRepo/revofmt.nvim/scripts/verify
