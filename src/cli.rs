@@ -30,7 +30,7 @@ Options:
   --                  Treat following arguments as file paths
 
 Layout flags override revofmt.toml, found in each input's directory or its
-nearest parent. A tab counts as --indent-width columns.
+nearest ancestor directory. A tab counts as --indent-width columns.
 Print mode accepts one input. --check and --write are mutually exclusive.
 Write mode rejects stdin and symlinks. Exit codes: 0 success, 1 check
 differences, 2 usage/I/O/syntax/validation error. Diagnostics go to stderr.

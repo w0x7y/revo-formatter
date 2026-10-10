@@ -1,6 +1,6 @@
 # Current architecture
 
-This guide describes the implemented formatter as of 2026-10-09. The
+This guide describes the implemented formatter as of 2026-10-10. The
 [domain glossary](../CONTEXT.md) defines its terms; the
 [README](../README.md) defines public behavior and options.
 

@@ -843,7 +843,7 @@ fn malformed_configuration_prevents_every_write() {
     contains_path(&output, &bad);
     assert_eq!(fs::read(&good).unwrap(), b"let x=1");
     assert_eq!(fs::read(&bad).unwrap(), b"let y=2");
-    // The same order with the malformed input first fails identically.
+    // The reverse order, with the malformed input first, fails identically.
     let output = invoke(
         &[OsStr::new("--write"), bad.as_os_str(), good.as_os_str()],
         "",

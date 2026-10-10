@@ -127,23 +127,31 @@ max_blank_lines = 2
 
 Keys use the same ranges as the flags. In tab mode `indent_width` is the tab's
 display width when fitting lines. These are errors that name the file: an
-unknown key, a value of the wrong type (including a negative integer), an
-`indent_style` other than `space` or `tab`, and a value outside its range. A
-file written for a newer release therefore fails on an older formatter.
+unknown key, a value of the wrong type (including a negative integer) and an
+`indent_style` other than `space` or `tab`. A file written for a newer release
+therefore fails on an older formatter. Ranges are checked on the resolved
+options for each input, so a value outside its range is an error naming the
+file only when it takes effect: a flag that overrides the key in default
+precedence hides it, while `--prefer-config` reports it.
 
-The formatter reads at most 64 KiB, which must be UTF-8. A `revofmt.toml` entry
-that exists but is not a readable regular file is an error. A symbolic link to
-a regular file is followed. Deeply nested TOML is an error, not a crash.
+A file larger than 64 KiB is an error, and the contents must be UTF-8. A
+`revofmt.toml` entry that exists but is not a readable regular file is an
+error. A symbolic link to a regular file is followed. Deeply nested TOML is an
+error, not a crash.
 
 ### Discovery
 
-For each input, discovery starts at the canonical form of the input's parent
-directory and walks up to the filesystem root. The first `revofmt.toml` found
-applies to that input. A relative input resolves against the working
-directory, and a path through a symbolic link is judged by its real location.
-If the parent directory cannot be canonicalized, for example a
-`--stdin-filepath` naming a directory that does not exist, discovery uses the
-absolute path as written.
+For each input, discovery starts at the canonical form of the directory that
+contains the path as given and walks up to the filesystem root. The first
+`revofmt.toml` found applies to that input. A relative input resolves against
+the working directory. Symbolic links in the directories are resolved, so the
+real location of the directory decides, but the file itself is not: a symbolic
+link to a file elsewhere uses the configuration found from the directory that
+holds the link. When that directory does not exist, for example a
+`--stdin-filepath` naming a directory that has not been created, discovery
+starts at the real location of its deepest existing ancestor. A `..` component
+or a symbolic link before the missing part cannot select another project's
+configuration.
 
 Each directory is searched once per run, including when the result is an
 error, so a configuration file is read and parsed at most once. In `--check`
