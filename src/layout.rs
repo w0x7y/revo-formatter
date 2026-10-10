@@ -77,18 +77,6 @@ impl<'a> Builder<'a> {
     fn gap(&self, i: usize) -> &'a str {
         &self.source[self.tokens[i - 1].end..self.tokens[i].start]
     }
-    fn line_comment(&self, i: usize) -> bool {
-        self.tokens[i].kind == "comment" && !self.text(i).starts_with("##")
-    }
-    fn breaks(&self, i: usize) -> Doc<'a> {
-        let count = self
-            .gap(i)
-            .bytes()
-            .filter(|b| *b == b'\n')
-            .count()
-            .clamp(1, self.max_newlines);
-        Doc::concat((0..count).map(|_| Doc::Hard).collect())
-    }
     fn sequence(&self, start: usize, end: usize) -> Doc<'a> {
         let mut parts = Vec::new();
         let mut segment = start;
@@ -168,15 +156,13 @@ impl<'a> Builder<'a> {
                         self.block_tail(body, close),
                     ])
                 } else {
-                    let leading =
-                        if self.conservative || self.comment(body - 1) || self.comment(body) {
-                            self.whitespace(body, Join::Ordinary)
-                        } else {
-                            Doc::Soft(" ")
-                        };
                     Doc::concat(vec![
                         head,
-                        Doc::concat(vec![leading, self.sequence(body, scope.end)]).indent(),
+                        Doc::concat(vec![
+                            self.whitespace(body, Join::Body),
+                            self.sequence(body, scope.end),
+                        ])
+                        .indent(),
                     ])
                     .group()
                 }
@@ -247,14 +233,11 @@ impl<'a> Builder<'a> {
         chunks
     }
     fn operand_chunk(&self, start: usize, end: usize) -> Doc<'a> {
-        let leading = if self.line_comment(start - 1)
-            || (self.comment(start - 1) && self.gap(start).contains('\n'))
-        {
-            self.breaks(start)
-        } else {
-            Doc::Soft(" ")
-        };
-        Doc::concat(vec![leading, self.expression_segment(start, end)]).group()
+        Doc::concat(vec![
+            self.whitespace(start, Join::Continuation),
+            self.expression_segment(start, end),
+        ])
+        .group()
     }
     fn comment(&self, i: usize) -> bool {
         matches!(
@@ -328,21 +311,11 @@ impl<'a> Builder<'a> {
         if close == open + 1 {
             return opening.followed_by(Doc::Text(self.text(close)));
         }
-        let leading = if self.conservative || self.comment(open + 1) || self.comment(open) {
-            self.whitespace(open + 1, Join::Ordinary)
-        } else {
-            Doc::Soft("")
-        };
-        let trailing = if self.conservative || self.comment(close - 1) {
-            self.whitespace(close, Join::Ordinary)
-        } else {
-            Doc::Soft("")
-        };
         Doc::enclosed(
             opening,
-            leading,
+            self.whitespace(open + 1, Join::Opening),
             self.sequence(open + 1, close),
-            trailing,
+            self.whitespace(close, Join::Closing),
             self.text(close),
         )
     }
@@ -365,6 +338,14 @@ mod gaps {
         Expression,
         /// Follow a `,` or `;` that ends a list item or explicit statement.
         List,
+        /// Follow the opener of a bracket or generic enclosure.
+        Opening,
+        /// Precede the closer of a bracket or generic enclosure.
+        Closing,
+        /// Separate a header from its expression body.
+        Body,
+        /// Precede an operand that may continue below its binary operator.
+        Continuation,
     }
 
     /// Original facts about one gap, gathered together for every decision.
@@ -377,19 +358,23 @@ mod gaps {
         newlines: usize,
         left_comment: bool,
         right_comment: bool,
+        /// A line comment owns the rest of its line.
+        after_line_comment: bool,
     }
 
     impl<'a> Builder<'a> {
         /// The whitespace document for the gap before token `i`.
         pub(super) fn whitespace(&self, i: usize, join: Join) -> Doc<'a> {
             let text = self.gap(i);
+            let left = self.text(i - 1);
             let gap = Gap {
-                left: self.text(i - 1),
+                left,
                 right: self.text(i),
                 spaced: !text.is_empty(),
                 newlines: text.bytes().filter(|&b| b == b'\n').count(),
                 left_comment: self.comment(i - 1),
                 right_comment: self.comment(i),
+                after_line_comment: self.tokens[i - 1].kind == "comment" && !left.starts_with("##"),
             };
             match self.soft(i, &gap, join) {
                 Some(flat) => Doc::Soft(flat),
@@ -400,12 +385,25 @@ mod gaps {
         // The flat text of a soft break, when the intention may reflow this
         // gap. Rules are ordered by priority.
         fn soft(&self, i: usize, gap: &Gap<'a>, join: Join) -> Option<&'static str> {
-            // Conservative layout retains every original gap decision, and a
-            // comment keeps its line and attachment.
-            if self.conservative || gap.left_comment || gap.right_comment {
+            // Conservative layout retains every original gap decision.
+            if self.conservative {
+                return None;
+            }
+            // A comment keeps its line and attachment. An operand continues
+            // below its operator only after a line comment or a comment
+            // followed by a newline.
+            let attached = match join {
+                Join::Continuation => {
+                    gap.after_line_comment || (gap.left_comment && gap.newlines > 0)
+                }
+                _ => gap.left_comment || gap.right_comment,
+            };
+            if attached {
                 return None;
             }
             match join {
+                Join::Body | Join::Continuation => Some(" "),
+                Join::Opening | Join::Closing => Some(""),
                 Join::List if gap.left == "," && gap.newlines <= 1 => Some(" "),
                 // One newline within an expression may soften unless it borders
                 // a statement or starts a match arm. Enclosure edges stay adjacent.
@@ -426,8 +424,9 @@ mod gaps {
         // Original line breaks under the blank-line limit, otherwise spacing
         // by syntax adjacency.
         fn ordinary(&self, i: usize, gap: &Gap<'a>) -> Doc<'a> {
-            if gap.newlines > 0 || self.line_comment(i - 1) {
-                return self.breaks(i);
+            if gap.newlines > 0 || gap.after_line_comment {
+                let lines = gap.newlines.clamp(1, self.max_newlines);
+                return Doc::concat((0..lines).map(|_| Doc::Hard).collect());
             }
             // The source's empty or nonempty adjacency, as one space.
             let original = if gap.spaced { " " } else { "" };
