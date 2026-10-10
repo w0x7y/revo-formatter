@@ -1,6 +1,6 @@
 use std::{
     ffi::OsStr,
-    fs,
+    fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
@@ -821,6 +821,18 @@ fn later_io_failure_reports_completed_paths_and_leaves_no_temporary_files() {
     let second = blocked_dir.join("second.rv");
     fs::write(&second, "let y=2").unwrap();
     fs::set_permissions(&blocked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    // This scenario needs a directory that denies creating files. A process
+    // that bypasses directory permissions (root, or a user namespace's root)
+    // cannot produce the failure, so skip rather than accept exit 0 as coverage.
+    // The deterministic lifecycle test in src/cli.rs still covers this path.
+    if File::create(blocked_dir.join(".probe")).is_ok() {
+        eprintln!(
+            "skipping later_io_failure_reports_completed_paths_and_leaves_no_temporary_files: \
+             this process can create files in a 0555 directory"
+        );
+        fs::set_permissions(&blocked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
     let output = invoke(
         &[OsStr::new("--write"), first.as_os_str(), second.as_os_str()],
         "",
