@@ -1,7 +1,7 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `9c46813e054381b080ea8a3ea418247dd5912596`.
+at revision `c9ff2105656803359867a6f13213330ee672d898`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
@@ -44,6 +44,11 @@ The pin then moved from `f0034ab75aaf49d65bc1b4769987f99380383fcb` to
 `9c46813e054381b080ea8a3ea418247dd5912596`, again without file changes:
 upstream changed only its Nix flake, which now uses Zig 0.17. The vendored
 files and `LICENSE.txt` still match `SHA256SUMS`.
+
+The pin then moved from `9c46813e054381b080ea8a3ea418247dd5912596` to
+`c9ff2105656803359867a6f13213330ee672d898`, again without file changes:
+upstream changed only a link in its README. The vendored files and
+`LICENSE.txt` still match `SHA256SUMS`.
 
 ## Source builds
 
