@@ -273,7 +273,7 @@ and blank-line limits 0, 1 and 2. A separate
 user-supplied guarded match with a typed table pattern adds 288 combinations,
 for 77,472 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
 stdin/file/check/write behavior are tested separately. It uses the pinned
-frontend at `9c46813e054381b080ea8a3ea418247dd5912596`.
+frontend at `c9ff2105656803359867a6f13213330ee672d898`.
 Gaps before loop-range dots and unknown interpolation mode suffixes are
 rejected by that frontend. `:v`, `:?`, `:p` and lone atom `#{:d}` are covered
 by complete-program regressions. Gaps after open-range dots can start loop
