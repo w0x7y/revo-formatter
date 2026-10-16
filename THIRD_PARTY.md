@@ -1,7 +1,7 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `c9ff2105656803359867a6f13213330ee672d898`.
+at revision `1f95869439fe41da49aab0cce7fa94134ec5ddd4`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
@@ -49,6 +49,11 @@ The pin then moved from `9c46813e054381b080ea8a3ea418247dd5912596` to
 `c9ff2105656803359867a6f13213330ee672d898`, again without file changes:
 upstream changed only a link in its README. The vendored files and
 `LICENSE.txt` still match `SHA256SUMS`.
+
+The pin then moved from `c9ff2105656803359867a6f13213330ee672d898` to
+`1f95869439fe41da49aab0cce7fa94134ec5ddd4`, again without file changes:
+upstream changed only its Nix flake, which now enables the LSP build feature.
+The vendored files and `LICENSE.txt` still match `SHA256SUMS`.
 
 ## Source builds
 
