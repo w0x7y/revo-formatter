@@ -195,7 +195,7 @@ fn main() -> Result<(), FormatError> {
 ## the limits
 
 current source builds support syntax pinned to revo revision
-`1f95869439fe41da49aab0cce7fa94134ec5ddd4`. the `v0.2.0` download reports
+`d2f16441c1554fec50d0098434223850bc4a1868`. the `v0.2.0` download reports
 revision `f0034ab75aaf49d65bc1b4769987f99380383fcb`, which has the same frontend
 source and syntax. the older `v0.1.2` download reports revision
 `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`, which has the same frontend source

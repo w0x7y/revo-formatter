@@ -5,7 +5,7 @@ mod layout_index;
 mod oracle;
 pub use error::FormatError;
 use std::borrow::Cow;
-pub const UPSTREAM_REVISION: &str = "1f95869439fe41da49aab0cce7fa94134ec5ddd4";
+pub const UPSTREAM_REVISION: &str = "d2f16441c1554fec50d0098434223850bc4a1868";
 /// Maximum source length, in UTF-8 bytes. Syntax complexity has additional limits.
 pub const MAX_SOURCE_BYTES: usize = 256 * 1024;
 
