@@ -1,7 +1,7 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `d2f16441c1554fec50d0098434223850bc4a1868`.
+at revision `482ef26f80f7b7b88e3c4b74d20b914a00e6e5f6`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
@@ -60,6 +60,12 @@ The pin then moved from `1f95869439fe41da49aab0cce7fa94134ec5ddd4` to
 upstream changed only its `build.zig` default features, which now include LSP
 on native targets and drop it from wasm. The vendored files and `LICENSE.txt`
 still match `SHA256SUMS`.
+
+The pin then moved from `d2f16441c1554fec50d0098434223850bc4a1868` to
+`482ef26f80f7b7b88e3c4b74d20b914a00e6e5f6`, again without file changes:
+upstream added `dataframe.sort()` to its runtime library in
+`src/baselib/base.rv` and `src/baselib/dataframe.zig`, which are not vendored.
+The vendored files and `LICENSE.txt` still match `SHA256SUMS`.
 
 ## Source builds
 
