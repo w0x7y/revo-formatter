@@ -23,11 +23,11 @@ can download and verify revofmt for you. For the command line, follow these step
 1. **Download the files.** Create a folder named `revofmt` inside your Downloads
    folder. Click each link below and save all five files in that folder.
 
-   - [revofmt-linux-x86_64-gnu](https://github.com/w0x7y/revo-formatter/releases/download/v0.2.0/revofmt-linux-x86_64-gnu): the program.
-   - [SHA256SUMS](https://github.com/w0x7y/revo-formatter/releases/download/v0.2.0/SHA256SUMS): checks that the downloads are complete and unchanged.
-   - [LICENSE](https://github.com/w0x7y/revo-formatter/releases/download/v0.2.0/LICENSE): the formatter license.
-   - [REVO-LICENSE.txt](https://github.com/w0x7y/revo-formatter/releases/download/v0.2.0/REVO-LICENSE.txt): the Revo license.
-   - [THIRD_PARTY.md](https://github.com/w0x7y/revo-formatter/releases/download/v0.2.0/THIRD_PARTY.md): third-party notices.
+   - [revofmt-linux-x86_64-gnu](https://github.com/w0x7y/revo-formatter/releases/download/v0.3.0/revofmt-linux-x86_64-gnu): the program.
+   - [SHA256SUMS](https://github.com/w0x7y/revo-formatter/releases/download/v0.3.0/SHA256SUMS): checks that the downloads are complete and unchanged.
+   - [LICENSE](https://github.com/w0x7y/revo-formatter/releases/download/v0.3.0/LICENSE): the formatter license.
+   - [REVO-LICENSE.txt](https://github.com/w0x7y/revo-formatter/releases/download/v0.3.0/REVO-LICENSE.txt): the Revo license.
+   - [THIRD_PARTY.md](https://github.com/w0x7y/revo-formatter/releases/download/v0.3.0/THIRD_PARTY.md): third-party notices.
 
    Keep the filenames as shown above. If your browser displays a text file,
    right-click its link and choose **Save link as**.
@@ -53,7 +53,7 @@ can download and verify revofmt for you. For the command line, follow these step
    printf 'let x=1' | revofmt
    ```
 
-   The version line starts with `revofmt 0.2.0`. The last command should print:
+   The version line starts with `revofmt 0.3.0`. The last command should print:
 
    ```revo
    let x = 1
@@ -194,14 +194,15 @@ fn main() -> Result<(), FormatError> {
 
 ## the limits
 
-current source builds support syntax pinned to revo revision
-`eefa192ea40d918d21630350219789e57fb6e661`. that revision removed macros and
-quasiquotes, made `do` and `end` invalid as binding names, rejects chained bare
-calls like `f "x" "y"`, and parses interpolations as code, so a nested string
-inside `#{...}` uses plain `"` quotes. the `v0.2.0` download reports revision
-`f0034ab75aaf49d65bc1b4769987f99380383fcb` and still uses the older syntax. the older `v0.1.2` download reports revision
+the `v0.3.0` download and current source builds support syntax pinned to revo
+revision `eefa192ea40d918d21630350219789e57fb6e661`. that revision removed
+macros and quasiquotes, made `do` and `end` invalid as binding names, rejects
+chained bare calls like `f "x" "y"`, and parses interpolations as code, so a
+nested string inside `#{...}` uses plain `"` quotes. the older `v0.2.0`
+download reports revision `f0034ab75aaf49d65bc1b4769987f99380383fcb` and uses
+the older syntax. the `v0.1.2` download reports revision
 `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`, which has the same frontend source
-and syntax. the older `v0.1.1` download uses revision
+and syntax as `v0.2.0`. the `v0.1.1` download uses revision
 `b571298b6fc95bc863548f118354c8d077792f6f` and does not include the newer range
 and interpolation syntax checks. run `revofmt --version`
 to see the syntax revision in your installed binary.
