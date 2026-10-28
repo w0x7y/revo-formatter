@@ -5,7 +5,7 @@ mod layout_index;
 mod oracle;
 pub use error::FormatError;
 use std::borrow::Cow;
-pub const UPSTREAM_REVISION: &str = "1060fcf44a16a185263b3cb244cca886ac017acc";
+pub const UPSTREAM_REVISION: &str = "eefa192ea40d918d21630350219789e57fb6e661";
 /// Maximum source length, in UTF-8 bytes. Syntax complexity has additional limits.
 pub const MAX_SOURCE_BYTES: usize = 256 * 1024;
 
@@ -55,7 +55,6 @@ impl FormatOptions {
 }
 
 /// Format without changing token bytes or syntax, modulo source coordinates.
-/// Procedural macros that inspect offsets, lines or columns can observe formatting.
 /// Literal contents remain opaque. Invalid input produces no formatted candidate.
 /// Inputs exceeding the documented resource limits return `FormatError::Validation`.
 pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
@@ -95,13 +94,13 @@ mod preservation_tests {
 
     #[test]
     fn unsafe_lexical_join_uses_verified_conservative_layout() {
-        let source = "let x=1 .field";
+        let source = "let x=1 .5";
         let options = FormatOptions::default();
         let analysis = oracle::analyze(source).unwrap();
         let preferred = layout::layout(&analysis, &options, false);
         assert!(!analysis.preserves(&preferred).unwrap());
         let output = format(source, &options).unwrap();
-        assert_eq!(output, "let x=1 .field\n");
+        assert_eq!(output, "let x=1 .5\n");
         assert!(analysis.preserves(&output).unwrap());
         assert_eq!(format(&output, &options).unwrap(), output);
     }

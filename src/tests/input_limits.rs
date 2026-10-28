@@ -19,8 +19,19 @@ fn blocks(depth: usize, body: &str) -> String {
     format!("{}{body}{}", "do\n".repeat(depth), "\nend".repeat(depth))
 }
 
+/// The pinned parser rejects more than 256 nested expression frames, about
+/// 127 prefixes, below some admission boundaries. Admitted input must format
+/// or report that syntax error, and never exhaust the caller's stack.
+fn assert_admitted(index: usize, source: &str, options: &FormatOptions) {
+    match format(source, options) {
+        Ok(output) => assert_preserved_and_idempotent(source, &output, options),
+        Err(FormatError::Syntax { message, .. }) if message == "expression too deeply nested" => {}
+        Err(error) => panic!("admitted case {index}: {error}"),
+    }
+}
+
 #[test]
-fn ordinary_blocks_share_admission_with_pipes_and_decoded_bodies() {
+fn ordinary_blocks_share_admission_with_pipes_and_interpolations() {
     std::thread::Builder::new()
         .stack_size(2 * 1024 * 1024)
         .spawn(|| {
@@ -33,8 +44,7 @@ fn ordinary_blocks_share_admission_with_pipes_and_decoded_bodies() {
                 blocks(100, &std::iter::repeat_n("1", 401).collect::<Vec<_>>().join("+")),
                 blocks(150, &format!("{}{}1{}", "(".repeat(16), "fn() ".repeat(66), ")".repeat(16))),
                 blocks(198, &format!("\"#{{{}}}\"", blocks(1, "1"))),
-                blocks(198, &format!("`{}`", blocks(1, "1"))),
-                blocks(197, &format!("\"outer #{{\\\"inner #{{{}}}\\\":p}}\"", blocks(1, "1"))),
+                blocks(197, &format!("\"outer #{{\"inner #{{{}}}\":p}}\"", blocks(1, "1"))),
                 format!("\"#{{{}}} #{{{}}}\"", blocks(99, "1"), blocks(100, "1")),
                 format!("'{}' ##{}##", "do end ".repeat(400), "do end ".repeat(400)),
                 format!("a{}", ".do".repeat(200)),
@@ -43,8 +53,19 @@ fn ordinary_blocks_share_admission_with_pipes_and_decoded_bodies() {
                 format!("\"#{{{}}} #{{{}}}\"", format_args!("{}1", "not ".repeat(198)), blocks(100, "1")),
             ];
             for (index, source) in accepted.into_iter().enumerate() {
-                let output = format(&source, &options)
-                    .unwrap_or_else(|error| panic!("accepted block case {index}: {error}"));
+                assert_admitted(index, &source, &options);
+            }
+            // The deepest nesting the parser accepts still lays out on 2 MiB.
+            let deepest = [
+                blocks(127, "foo.end"),
+                format!("\"#{{{}}}\"", blocks(126, "1")),
+                format!("{}1", "fn() ".repeat(127)),
+                format!("{}1", "not ".repeat(127)),
+                format!("{}1", "- ".repeat(127)),
+                format!("{}1", "match x | _ => ".repeat(127)),
+            ];
+            for source in deepest {
+                let output = format(&source, &options).unwrap();
                 assert_preserved_and_idempotent(&source, &output, &options);
             }
             // Sample both sides of the shared parser/layout/tree boundary, with
@@ -52,25 +73,18 @@ fn ordinary_blocks_share_admission_with_pipes_and_decoded_bodies() {
             for (depth, functions) in [(0, 307), (20, 303), (64, 270), (100, 198), (150, 98), (190, 18), (198, 2)] {
                 let prefixes = "fn() ".repeat(functions);
                 for source in [blocks(depth, &format!("{prefixes}foo.end")), format!("{prefixes}{}", blocks(depth, "foo.end"))] {
-                    let output = format(&source, &options)
-                        .unwrap_or_else(|error| panic!("blocks {depth}, functions {functions}: {error}"));
-                    assert_preserved_and_idempotent(&source, &output, &options);
+                    assert_admitted(depth, &source, &options);
                 }
             }
             for (depth, unary) in [(154, 182), (155, 180), (195, 20)] {
                 let prefixes = "- ".repeat(unary);
                 for source in [blocks(depth, &format!("{prefixes}1")), format!("{prefixes}{}", blocks(depth, "1"))] {
-                    let output = format(&source, &options).unwrap();
-                    assert_preserved_and_idempotent(&source, &output, &options);
+                    assert_admitted(depth, &source, &options);
                 }
             }
-            for prefix in ["fn() do\n", "proc p!(x) do\n", "if x do\n", "unless x do\n", "loop do\n", "for x in xs do\n", "while x do\n"] {
-                let source = format!("{}1{}", prefix.repeat(132), "\nend".repeat(132));
-                let output = format(&source, &options).unwrap();
-                assert_preserved_and_idempotent(&source, &output, &options);
-            }
-            for prefix in ["fn() proc p!(x) do\n", "proc p!(x) fn() do\n"] {
-                let source = format!("{}1{}", prefix.repeat(99), "\nend".repeat(99));
+            for prefix in ["fn() do\n", "if x do\n", "unless x do\n", "loop do\n", "for x in xs do\n", "while x do\n"] {
+                assert_admitted(132, &format!("{}1{}", prefix.repeat(132), "\nend".repeat(132)), &options);
+                let source = format!("{}1{}", prefix.repeat(63), "\nend".repeat(63));
                 let output = format(&source, &options).unwrap();
                 assert_preserved_and_idempotent(&source, &output, &options);
             }
@@ -86,8 +100,7 @@ fn ordinary_blocks_share_admission_with_pipes_and_decoded_bodies() {
                 blocks(200, &format!("{}1", "1 |> ".repeat(88))),
                 blocks(199, "1+1+1+1+1+1"),
                 format!("\"#{{{}}} #{{{}}}\"", blocks(100, "1"), blocks(100, "1")),
-                format!("`{}; {}`", blocks(100, "1"), blocks(100, "1")),
-                blocks(198, &format!("\"outer #{{\\\"inner #{{{}}}\\\":p}}\"", blocks(1, "1"))),
+                blocks(198, &format!("\"outer #{{\"inner #{{{}}}\":p}}\"", blocks(1, "1"))),
                 format!("a{}", ".do".repeat(201)),
                 format!("\"#{{{}}} #{{{}}}\"", blocks(100, "1"), format_args!("{}1", "not ".repeat(199))),
                 format!("\"#{{{}}} #{{{}}}\"", format_args!("{}1", "not ".repeat(199)), blocks(100, "1")),
@@ -128,11 +141,10 @@ fn admission_precedes_recursive_work_on_a_two_mib_stack() {
                 format!("{}{}", "not ".repeat(100), std::iter::repeat_n("1", 800).collect::<Vec<_>>().join("%")),
                 format!("{}a{}", "fn() ".repeat(50), ":f()".repeat(398)),
                 format!("'{}'", "x".repeat(100_000)),
-                "let q = `f(%x)`; let s = \"outer #{\\\"inner #{x}\\\":p}\"".into(),
+                "let s = \"outer #{\"inner #{x}\":p}\"".into(),
             ].into_iter().enumerate() {
                 let (index, source) = source;
-                let output = format(&source, &FormatOptions::default()).unwrap_or_else(|error| panic!("accepted case {index}: {error}"));
-                assert_eq!(format(&output, &FormatOptions::default()).unwrap(), output);
+                assert_admitted(index, &source, &FormatOptions::default());
             }
             let deep = format!("{}1{}", "(".repeat(3000), ")".repeat(3000));
             for source in [
@@ -146,7 +158,6 @@ fn admission_precedes_recursive_work_on_a_two_mib_stack() {
                 format!("a{}", ".f".repeat(1500)),
                 format!("a{}", ":f()".repeat(760)),
                 format!("\"#{{{deep}}}\""),
-                format!("`{deep}`"),
                 format!("{}1", "fn() ".repeat(500)),
                 format!("declare X = {}number", "!".repeat(1500)),
                 format!("{}1", "match x | _ => ".repeat(330)),

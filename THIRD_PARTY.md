@@ -1,7 +1,7 @@
 # Pinned Revo frontend
 
 `vendor/revo/` contains unchanged files from https://github.com/if-not-nil/revo
-at revision `1060fcf44a16a185263b3cb244cca886ac017acc`.
+at revision `eefa192ea40d918d21630350219789e57fb6e661`.
 Paths under that directory match upstream paths exactly. `REVISION` and
 `SHA256SUMS` are local provenance metadata. Revo is MIT licensed; its complete
 notice is retained in `vendor/revo/LICENSE.txt`. The formatter's original code
@@ -18,22 +18,19 @@ its own unchanged upstream MIT notice in `LICENSE.txt` and file checksums in
 `SHA256SUMS`.
 
 The 22 Zig files are the relative-file import closure of `Parser.zig`,
-`Lexer.zig`, `ast.zig`, `diagnostic.zig`, and `type_syntax.zig`. Zig resolves
+`Lexer.zig`, `cst.zig`, `diagnostic.zig`, and `type_syntax.zig`. Zig resolves
 imports appearing in unused declarations and tests, so source files for those
 imports must exist. Their runtime operations are not used by this bridge.
 `bridge/frontend.zig` calls only the lexer and pure parser. It never calls
-pipeline parsing, loads imports, expands macros, performs semantic analysis,
-or invokes a Revo runtime. No upstream source modifications or stub runtime
+pipeline parsing, loads imports, performs semantic analysis, or invokes a Revo
+runtime. No upstream source modifications or stub runtime
 modules are used. The separate `bridge/` modules implement owned JSON results,
 source metadata, and exhaustive structural comparison.
 
-The refreshed closure still contains 22 files. Upstream's `global_const` AST
-variant participates in the bridge's existing exhaustive enum comparison and
-generic source traversal; neither needs a special declaration case. New
-runtime-facing imports in upstream diagnostics remain unused by pure parsing.
-The bridge build still needs only Zig's standard library and libc, with no new
-Cargo or Zig package dependencies. Filtered bridge tests and the native debug
-and release suites verify this build boundary.
+The bridge build needs only Zig's standard library and libc, with no Cargo or
+Zig package dependencies beyond the pinned toolchain. Runtime-facing imports in
+upstream diagnostics remain unused by pure parsing. Filtered bridge tests and
+the native debug and release suites verify this build boundary.
 
 The pin moved from `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc` to
 `f0034ab75aaf49d65bc1b4769987f99380383fcb` without file changes: upstream
@@ -72,6 +69,20 @@ The pin then moved from `482ef26f80f7b7b88e3c4b74d20b914a00e6e5f6` to
 upstream added `dataframe.row()` and `dataframe.filter()` to its runtime
 library and fixed its `argparse` help output and HTTP keepalive, all outside the
 vendored files. The vendored files and `LICENSE.txt` still match `SHA256SUMS`.
+
+The pin then moved from `1060fcf44a16a185263b3cb244cca886ac017acc` to
+`eefa192ea40d918d21630350219789e57fb6e661`, with frontend changes. Upstream
+replaced its AST with a lossless concrete syntax tree in `cst.zig`, lexes
+strings as start, part, interpolation and end tokens, keeps comments as lexer
+trivia, removed procedural macros and quasiquotes, rejects chained bare calls,
+caps parser nesting at 256 expression frames, and removed the `num` and `int`
+type names. The closure dropped `ast.zig`, `macro_common.zig`,
+`macro_proc.zig` and `scope_graph.zig` and gained `cst.zig`, `hir.zig`,
+`resmap.zig` and `pipeline/interpolation.zig`, so it still has 22 files.
+`LICENSE.txt` is unchanged. The bridge now merges lexer trivia into the
+token/comment tape, takes layout hints from CST token extents, and compares
+trees iteratively. The oracle runs parsing and comparison on a dedicated 16 MiB
+thread because the new parser needs more than 2 MiB of stack at its nesting cap.
 
 ## Source builds
 
@@ -112,11 +123,12 @@ manifests from the directories shown; their paths are directory-relative.
 
 ## Syntax validation policy
 
-Comparison ignores only the exact upstream `ast.Span` type, including nested
-parameter/type coordinates. It compares all other fields, tagged unions,
-optional values, slices and pointed-to contents, with floats compared by bits.
-This establishes syntax equivalence modulo coordinates. Procedural macros
-that inspect positions can observe formatting-induced coordinate changes;
-the bridge never executes those macros. The Rust formatter separately checks
+Comparison ignores the exact upstream `Lexer.Span` type, and compares tokens
+by type and text only. Token offsets, lines, columns, whitespace flags and
+trivia indices are source coordinates; the parser already encodes every
+whitespace decision it makes as a different tree shape. Comparison covers all
+other fields, tagged unions, optional values, slices and pointed-to contents,
+with floats compared by bits. It establishes syntax equivalence modulo
+coordinates. The Rust formatter separately checks
 one interleaved ordered sequence of raw tokens and comments for exact byte
 preservation before returning a result.

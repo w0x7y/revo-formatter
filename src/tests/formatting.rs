@@ -17,19 +17,19 @@ fn contextual_end_field_keeps_block_statements_indented() {
 }
 
 #[test]
-fn contextual_do_binding_keeps_block_statements_indented() {
+fn contextual_do_assignment_keeps_block_statements_indented() {
     check(
-        "do\nlet do=1\nfoo()\nend",
-        "do\n  let do = 1\n  foo()\nend\n",
+        "do\nx.do=1\nfoo()\nend",
+        "do\n  x.do = 1\n  foo()\nend\n",
         FormatOptions::default(),
     );
 }
 
 #[test]
-fn contextual_end_binding_keeps_block_statements_indented() {
+fn contextual_end_assignment_keeps_block_statements_indented() {
     check(
-        "do\nlet end=1\nfoo()\nend",
-        "do\n  let end = 1\n  foo()\nend\n",
+        "do\nx.end=1\nfoo()\nend",
+        "do\n  x.end = 1\n  foo()\nend\n",
         FormatOptions::default(),
     );
 }
@@ -49,27 +49,19 @@ fn contextual_keywords_inside_blocks_are_not_delimiters() {
             "do\nfoo. # note\nend\nbar()\nend",
             "do\n  foo. # note\n  end\n  bar()\nend\n",
         ),
-        ("do/end\nfoo()\nend", "do /end\n  foo()\nend\n"),
-        ("do/do\nfoo()\nend", "do /do\n  foo()\nend\n"),
-        (
-            "fn f(do,end) do\nfoo()\nend",
-            "fn f(do, end) do\n  foo()\nend\n",
-        ),
-        (
-            "fn f<do,end>() do\nfoo()\nend",
-            "fn f < do, end > () do\n  foo()\nend\n",
-        ),
+        ("do/outer\nfoo()\nend", "do/outer\n  foo()\nend\n"),
+        ("do /outer\nfoo()\nend", "do /outer\n  foo()\nend\n"),
         (
             "fn f.end() do\nfoo()\nend",
             "fn f.end () do\n  foo()\nend\n",
         ),
         (
-            "do\nfor do,end in xs do\nfoo()\nend\nbar()\nend",
-            "do\n  for do, end in xs do\n    foo()\n  end\n  bar()\nend\n",
+            "do\nloop/again do\nbreak/again nil\nend\nbar()\nend",
+            "do\n  loop/again do\n    break/again nil\n  end\n  bar()\nend\n",
         ),
         (
-            "do\nloop/end do\nbreak/end nil\nend\nbar()\nend",
-            "do\n  loop/end do\n    break/end nil\n  end\n  bar()\nend\n",
+            "test/skip \"x\" do\nfoo.end\nend",
+            "test/skip \"x\" do\n  foo.end\nend\n",
         ),
         (
             "do\ndo\nfoo.end\nfoo.do\nend\nbar()\nend",
@@ -92,8 +84,8 @@ fn contextual_keywords_inside_blocks_are_not_delimiters() {
 fn final_nested_blocks_complete_their_owning_declarations() {
     for (source, expected) in [
         (
-            "do\nlet x=do\nlet end=1\nend\nend",
-            "do\n  let x = do\n    let end = 1\n  end\nend\n",
+            "do\nlet x=do\nx.end=1\nend\nend",
+            "do\n  let x = do\n    x.end = 1\n  end\nend\n",
         ),
         (
             "do\ntest \"x\" do\nfoo.end\nend\nend",
@@ -103,7 +95,7 @@ fn final_nested_blocks_complete_their_owning_declarations() {
             "do\nsuite \"x\" do\ntest \"y\" do\nfoo.do\nend\nend\nend",
             "do\n  suite \"x\" do\n    test \"y\" do\n      foo.do\n    end\n  end\nend\n",
         ),
-        ("do/end end", "do /end end\n"),
+        ("do/once end", "do/once end\n"),
         ("do do end end", "do do end end\n"),
         (
             "do\n1 |> do\nfoo.end\nend\nend",
@@ -127,7 +119,7 @@ fn piped_long_block_bodies_keep_their_indentation_scope() {
 fn piped_nested_blocks_keep_their_hierarchical_scopes() {
     check(
         "do\n1 |> do\ndo\nfoo()\nbar()\nend\nbaz()\nend\nafter()\nend",
-        "do\n  1 |>\n    do\n      do\n        foo() bar()\n      end\n      baz()\n    end\n  after()\nend\n",
+        "do\n  1 |>\n    do\n      do\n        foo()\n        bar()\n      end\n      baz()\n    end\n  after()\nend\n",
         FormatOptions::default(),
     );
 }
@@ -507,6 +499,7 @@ fn upstream_range_start_and_step_gaps_are_syntax_errors() {
 
 #[test]
 fn upstream_unknown_interpolation_modes_are_syntax_errors() {
+    // The parser expects `}` after a value unless `:v`, `:?` or `:p` follows.
     for source in [
         "const t=1;print(\"#{t:d}\")",
         "const t=1;print(\"#{t:d  }\")",
@@ -514,22 +507,19 @@ fn upstream_unknown_interpolation_modes_are_syntax_errors() {
         "const t=1;print(\"\"\"\n  #{t:d}\n  \"\"\")",
     ] {
         assert!(
-            matches!(format(source, &FormatOptions::default()), Err(FormatError::Syntax { message, .. }) if message.contains("doesnt work in interpolations")),
+            matches!(format(source, &FormatOptions::default()), Err(FormatError::Syntax { message, .. }) if message == "unexpected token"),
             "{source:?}"
         );
     }
-    for source in [
-        "print(\"#{}\")",
-        "print(\"#{:v}\")",
-        "print(\"#{:?}\")",
-        "print(\"#{:p}\")",
-    ] {
-        assert!(
-            matches!(
-                format(source, &FormatOptions::default()),
-                Err(FormatError::Syntax { .. })
-            ),
-            "{source:?}"
+    assert!(matches!(
+        format("print(\"#{}\")", &FormatOptions::default()),
+        Err(FormatError::Syntax { message, .. }) if message == "empty string interpolation"
+    ));
+    // A lone atom is an interpolated value, not a mode.
+    for source in ["print(\"#{:v}\")", "print(\"#{:?}\")", "print(\"#{:p}\")"] {
+        assert_eq!(
+            format(source, &FormatOptions::default()).unwrap(),
+            format!("{source}\n")
         );
     }
 }
@@ -647,7 +637,7 @@ fn validates_options_before_syntax_and_reports_malformed_input() {
         "let x =",
         "\"unterminated",
         "let x=1 )",
-        "proc () 1",
+        "f \"x\" \"y\"",
         "$",
         "let x=1\n#! late !#",
         "value !",
@@ -691,22 +681,12 @@ fn unicode_display_columns_and_long_opaque_tokens() {
 }
 
 #[test]
-fn procedural_macros_preserve_syntax_modulo_coordinates() {
-    // Parsing is sufficient: never execute this coordinate-inspecting macro.
-    let source = "proc offset!(iter) do let f=iter:next(); {{:number, f[1][0][1][0]}} end; offset!(fn(  x) x)";
-    let output = format(source, &FormatOptions::default()).unwrap();
-    assert!(output.contains("fn(x) x"));
-    check(source, &output, FormatOptions::default());
-}
-
-#[test]
 fn nested_interpolation_escaped_templates_and_opaque_line_endings() {
     for (source, expected) in [
         (
-            r##"let x="#{fn() \"nested\"}""##,
-            r##"let x = "#{fn() \"nested\"}""##.to_owned() + "\n",
+            r##"let x="#{fn() "nested #{"deep"}"}""##,
+            r##"let x = "#{fn() "nested #{"deep"}"}""##.to_owned() + "\n",
         ),
-        (r#"let x=`"a\`b"`"#, r#"let x = `"a\`b"`"#.to_owned() + "\n"),
         (
             "let x='first\r\nsecond'\nlet y=1\n",
             "let x = 'first\r\nsecond'\nlet y = 1\n".to_owned(),
@@ -1066,8 +1046,8 @@ fn tab_indentation_writes_one_tab_per_level() {
     );
     // Conservative fallback (lexical join) inside a block.
     check(
-        "do\nlet x=1 .field\nend",
-        "do\n\tlet x=1 .field\nend\n",
+        "do\nlet x=1 .5\nend",
+        "do\n\tlet x=1 .5\nend\n",
         tabs(2, 80),
     );
 }
@@ -1303,15 +1283,15 @@ fn gaps_follow_their_intention_comments_and_blank_line_limit() {
             Output,
         ),
         (
-            "do\nlet x=1 .field\nf(\n1,\n2\n)\nend",
+            "do\nlet x=1 .5\nf(\n1,\n2\n)\nend",
             defaults,
-            "do\n  let x=1 .field\n  f(\n    1,\n    2\n  )\nend\n",
+            "do\n  let x=1 .5\n  f(\n    1,\n    2\n  )\nend\n",
             Rejected,
         ),
         (
-            "do\nlet x=1 .field\nf(1,\n\n\n2)\nend",
+            "do\nlet x=1 .5\nf(1,\n\n\n2)\nend",
             blank_lines(0),
-            "do\n  let x=1 .field\n  f(1,\n    2)\nend\n",
+            "do\n  let x=1 .5\n  f(1,\n    2)\nend\n",
             Rejected,
         ),
     ] {

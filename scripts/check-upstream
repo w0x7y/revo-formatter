@@ -33,7 +33,8 @@ VALID = [
     'print("#{ :d }")',
     'const t=42;print("100% complete: #{t:p}")',
     'const t=42;print("""\n  first\n  #{t:v}\n  #{t:?}\n  """)',
-    r'const t=42;print("#{fmt(\"%v\", t):v}")',
+    'const t=42;print("#{fmt("%v", t):v}")',
+    'print("#{:v} #{:?} #{:p}")',
     r'print("literal {{brace}} \#{value}")',
     'const mt={__display=fn(self) "visible",__debug=fn(self) "debug"};'
     'const t=set_meta({},mt);print("#{t:v} #{t:?}")',
@@ -59,14 +60,14 @@ INVALID = [
     ('for i in 0 ## gap ##..3 do i end', 'must be adjacent to the range start'),
     ('for i in 0..2 ..6 do i end', 'must be adjacent to the step'),
     ('for i in 0..2\n..6 do i end', 'must be adjacent to the step'),
-    ('const t=1;print("#{t:d}")', 'doesnt work in interpolations'),
-    ('const t=1;print("#{t:d  }")', 'doesnt work in interpolations'),
-    ('const t=1;print("#{t:x}")', 'doesnt work in interpolations'),
-    ('const t=1;print("""\n  #{t:d}\n  """)', 'doesnt work in interpolations'),
+    ('const t=1;print("#{t:d}")', 'unexpected token'),
+    ('const t=1;print("#{t:d  }")', 'unexpected token'),
+    ('const t=1;print("#{t:x}")', 'unexpected token'),
+    ('const t=1;print("""\n  #{t:d}\n  """)', 'unexpected token'),
     ('print("#{}")', 'empty string interpolation'),
-    ('print("#{:v}")', 'empty string interpolation'),
-    ('print("#{:?}")', 'empty string interpolation'),
-    ('print("#{:p}")', 'empty string interpolation'),
+    ('print("#{f(\\"x\\")}")', 'unexpected character'),
+    ('let q=`f(%x)`', 'unexpected character'),
+    ('print "x" "y"', 'bare calls take exactly one argument'),
 ]
 
 with tempfile.TemporaryDirectory(prefix="revo-upstream-") as temporary:

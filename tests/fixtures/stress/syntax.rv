@@ -31,7 +31,7 @@ let triple="""
 
 # case: interpolation modes and escaped delimiters
 let interpolated="value #{value:v} debug #{value:?} pretty #{value:p} literal \#{value} {{braces}}";
-let nested="#{fn() \"inner #{value}\"}";
+let nested="#{fn() "inner #{value}"}";
 
 # case: ordinary comments
 let commented=1 ## inline do end { } ## +2; # end of statement
@@ -220,9 +220,9 @@ receiver:method## adjacent ##(value);
 
 # case: contextual do and end names
 do
-let do=1; let end=2;
+receiver.do=1; receiver.end=2;
 receiver.do;receiver.end;
-fn names(do,end) receiver.end;
+fn receiver.end() receiver.do;
 end;
 
 # case: pipe placeholders and anonymous bodies
@@ -234,15 +234,6 @@ value |> transform(do nested() end);
 let compile_time=comp ({answer=6*7});
 let worker=spawn (fn() do yield;42 end)();
 yield; join(worker);
-
-# case: procedural macros and opaque quasiquotes
-proc keep!(iter) do let value=iter:next();{value} end;
-keep!(fn(x) x);
-let quote=`f(%first, %second)`;
-proc choose!(iter) do
-let condition=iter:next();let body=iter:next();
-{`{:if_expr, %condition, %body, {:nil}}`}
-end;
 
 # case: tests skipped tests and suites
 test "ordinary" do expect_eq(1,1)? end;

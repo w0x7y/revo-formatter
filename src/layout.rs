@@ -10,7 +10,7 @@ use gaps::Join;
 /// Conservative mode retains every gap's empty/nonempty and same/different-line
 /// decisions. It only canonicalizes whitespace and indentation, capping blank
 /// lines at the configured limit. This preserves all pinned parser whitespace
-/// branches; callers still verify token bytes and the complete AST before using
+/// branches; callers still verify token bytes and the complete syntax tree before using
 /// the result.
 pub(crate) fn layout(
     analysis: &AnalyzedSource<'_>,
@@ -439,7 +439,12 @@ mod gaps {
             }
             // These adjacency decisions affect parsing. Keeping all angle and range
             // gaps also protects generic lookahead and open-ended for ranges.
-            if right == "/" && matches!(left, "loop" | "while" | "for" | "break" | "continue") {
+            if right == "/"
+                && matches!(
+                    left,
+                    "do" | "test" | "loop" | "while" | "for" | "break" | "continue"
+                )
+            {
                 return Doc::Text(original);
             }
             if self.index.unary_sign(i - 1) || right == "[" {
@@ -452,7 +457,6 @@ mod gaps {
                         | "number"
                         | "string"
                         | "multiline_string"
-                        | "backtick_string"
                         | "atom"
                         | "rparen"
                         | "rbracket"

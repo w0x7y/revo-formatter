@@ -78,13 +78,14 @@ symlinks, and nonregular files. `--check` and `--write` are mutually exclusive.
 See [Configuration](#configuration) for `revofmt.toml`.
 
 The CLI and library apply conservative input limits before parsing: 262,144
-UTF-8 source bytes, 4,096 expanded lexer tokens, and 32 combined delimiter and
-embedded-source levels. Shared weighted budgets also limit recursive parser
-forms, AST traversal, and layout, including flat operators and postfix chains.
-Possible source blocks share the layout budget with recursive prefixes and
-operators, including combinations spread across decoded fragments.
-Interpolation and quasiquote bodies count toward these budgets even though their
-literal bytes remain opaque to formatting. Ordinary literal and comment contents
+UTF-8 source bytes, 4,096 tape tokens, and 32 combined delimiter and
+interpolation levels. Shared weighted budgets also limit recursive parser
+forms, syntax tree traversal, and layout, including flat operators and postfix
+chains. Possible source blocks share the layout budget with recursive prefixes
+and operators, including those inside interpolations. Interpolated values count
+toward these budgets even though their bytes remain opaque to formatting. The
+pinned parser separately rejects nesting deeper than about 127 prefixes as the
+syntax error `expression too deeply nested`. Ordinary literal and comment contents
 count toward the byte limit, without counting their punctuation as syntax.
 Limits apply to generated candidates too; space for a final newline can therefore
 be necessary. A limit failure returns `FormatError::Validation`, or CLI exit code
@@ -227,35 +228,32 @@ failures. `UPSTREAM_REVISION` exposes the syntax revision.
 
 All non-whitespace token spellings and the interleaved order of tokens and
 comments stay unchanged. Literal and comment contents remain opaque,
-including documentation comments, quasiquotes, interpolation, and indentation
-inside multiline strings. The formatter preserves layout line endings and
+including documentation comments, interpolation, and indentation inside
+multiline strings. The formatter preserves layout line endings and
 adds one final newline to nonempty source. Empty source remains empty.
 
 Every returned candidate parses and has the same syntax tree after source
 coordinates are excluded. The output is idempotent: formatting it again
 produces identical bytes. This validates syntax without resolving imports,
-checking types, executing Revo, or expanding procedural macros.
-
-Formatting procedural macros is allowed. Macros that inspect offsets, lines,
-or columns can observe formatting-induced position changes. The guarantee is
-syntax equivalence modulo those coordinates, so such macros can produce
-different results after formatting.
+checking types, or executing Revo.
 
 ## Tested upstream corpus
 
 The [vendored corpus provenance](../tests/fixtures/upstream/PROVENANCE.md) lists
-20 valid historical inputs from revision
+20 historical inputs from revision
 `b571298b6fc95bc863548f118354c8d077792f6f`: six complete `.rv` examples
-and fourteen self-contained documentation snippets. It also lists one
-malformed upstream documentation fence, which is tested as a syntax rejection.
-The valid fixtures include the demo, pipes, procedural macros, types, control
+and fourteen self-contained documentation snippets. Against the current pin, 18
+are valid. The two quasiquote snippets became syntax errors when upstream
+removed macros, and they are tested as rejections alongside one malformed
+documentation fence. The valid fixtures include the demo, pipes, types, control
 flow, match arms, multiline literals and comments.
 
 Each valid input is checked at line widths 24, 80 and 120 with indent widths
 2 and 4, space and tab indentation, and blank-line limits 0, 1 and 2, giving
-720 input/option combinations. Each combination produces one
+648 input/option combinations. Each combination produces one
 formatter result, checked for reparsing, exact
-interleaved raw token/comment bytes, complete AST equivalence modulo coordinates,
+interleaved raw token/comment bytes, complete syntax tree equivalence modulo
+coordinates,
 and idempotence. Four of those same results, at space indentation and the
 default blank-line limit of 1, also check reviewed expected output
 for signature/table reflow, block indentation and match-arm layout. The private
@@ -266,17 +264,18 @@ comment movement and literal respelling. This is a bounded regression corpus;
 it does not establish exhaustive syntax coverage or uniform layout quality.
 
 The separate [synthetic syntax stress corpus](../tests/fixtures/stress/README.md)
-adds a readable 50-section file and reviewed default output. Whole-file,
-isolated-section and composed-expression tests cover 77,184 valid input/option
+adds a readable 49-section file and reviewed default output. Whole-file,
+isolated-section and composed-expression tests cover 75,168 valid input/option
 combinations with LF/CRLF, six widths, four indent widths, both indent styles
 and blank-line limits 0, 1 and 2. A separate
 user-supplied guarded match with a typed table pattern adds 288 combinations,
-for 77,472 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
+for 75,456 total, using the same real preservation and idempotence checks. Invalid near misses and CLI
 stdin/file/check/write behavior are tested separately. It uses the pinned
-frontend at `1060fcf44a16a185263b3cb244cca886ac017acc`.
+frontend at `eefa192ea40d918d21630350219789e57fb6e661`.
 Gaps before loop-range dots and unknown interpolation mode suffixes are
-rejected by that frontend. `:v`, `:?`, `:p` and lone atom `#{:d}` are covered
-by complete-program regressions. Gaps after open-range dots can start loop
+rejected by that frontend. `:v`, `:?`, `:p` and lone atoms such as `#{:d}` or
+`#{:v}`, which interpolate the atom itself, are covered by complete-program
+regressions. Gaps after open-range dots can start loop
 bodies, so formatting retains their adjacency decisions.
 
 See the [architecture and Final Check record](verification/2026-10-09-architecture-final-check.md) for

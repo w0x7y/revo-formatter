@@ -75,7 +75,7 @@ impl LayoutIndex {
                 _ => {}
             }
         }
-        // Block ownership comes from actual source-backed AST blocks. Keywords
+        // Block ownership comes from actual source-backed CST blocks. Keywords
         // are also valid identifiers, so only punctuation is paired lexically.
         for region in analysis.regions().iter().filter(|r| r.kind == "block") {
             let start = tokens.partition_point(|t| t.start < region.start);
@@ -242,7 +242,7 @@ impl LayoutIndex {
             let block_close = (text(adjusted_body) == "do")
                 .then(|| index.delimiter_closes[adjusted_body])
                 .flatten();
-            // A body AST can be `do ... end + suffix`. Printing the concrete
+            // A body node can be `do ... end + suffix`. Printing the concrete
             // block owns only its closer; the surrounding traversal keeps the
             // suffix rather than advancing past tokens it has not printed.
             index.headers[start] = Some(Scope {
@@ -276,7 +276,7 @@ impl LayoutIndex {
         index
     }
 
-    // An opener inside the hint owns its closer, even when the AST span omits
+    // An opener inside the hint owns its closer, even when the hint omits
     // it. Jump complete pairs: nested delimiters cannot extend past that close.
     // A closer whose opener precedes start cannot extend this envelope.
     fn envelope_end(&self, start: usize, mut end: usize) -> usize {

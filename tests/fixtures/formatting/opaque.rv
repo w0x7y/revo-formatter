@@ -13,6 +13,6 @@ let multi="""
     hello
       日本語
     """
-let quote=`fn(x) %value`
+let nested="#{fn() "inner #{1}"}"
 escaped
 end

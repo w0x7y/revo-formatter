@@ -195,21 +195,23 @@ fn main() -> Result<(), FormatError> {
 ## the limits
 
 current source builds support syntax pinned to revo revision
-`1060fcf44a16a185263b3cb244cca886ac017acc`. the `v0.2.0` download reports
-revision `f0034ab75aaf49d65bc1b4769987f99380383fcb`, which has the same frontend
-source and syntax. the older `v0.1.2` download reports revision
+`eefa192ea40d918d21630350219789e57fb6e661`. that revision removed macros and
+quasiquotes, made `do` and `end` invalid as binding names, rejects chained bare
+calls like `f "x" "y"`, and parses interpolations as code, so a nested string
+inside `#{...}` uses plain `"` quotes. the `v0.2.0` download reports revision
+`f0034ab75aaf49d65bc1b4769987f99380383fcb` and still uses the older syntax. the older `v0.1.2` download reports revision
 `e94e6d89ddaabb3249b38c1b10df87c700d1e8dc`, which has the same frontend source
 and syntax. the older `v0.1.1` download uses revision
 `b571298b6fc95bc863548f118354c8d077792f6f` and does not include the newer range
 and interpolation syntax checks. run `revofmt --version`
 to see the syntax revision in your installed binary.
 validation compares token/comment bytes and the syntax tree, ignoring source
-coordinates. it doesn't resolve imports, check types or execute macros.
-a macro that reads source positions can observe formatting changes.
+coordinates. it doesn't resolve imports, check types or run programs.
 
 source and generated results have resource limits: 262,144 UTF-8 bytes, 4,096
-expanded lexer tokens, and 32 combined delimiter/embedded-source levels, plus
-shared recursive budgets. see the [input policy](docs/verification/input-limits.md)
+tape tokens, and 32 combined delimiter/interpolation levels, plus shared
+recursive budgets. the pinned parser also rejects nesting deeper than about 127
+prefixes. see the [input policy](docs/verification/input-limits.md)
 for the exact rules, and the [reference](docs/formatter.md) for layout and preservation details.
 
 ## development and verification
@@ -224,7 +226,7 @@ cargo test --doc
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 "$ZIG" fmt --check bridge.zig bridge/*.zig
-"$ZIG" test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter indexed --test-filter 'input limits:' --cache-dir target/zig-test-cache
+"$ZIG" test bridge.zig -lc -O ReleaseSafe --test-filter 'bridge:' --test-filter 'input limits:' --cache-dir target/zig-test-cache
 cargo build --release
 (cd vendor/revo && sha256sum --check SHA256SUMS)
 (cd tests/fixtures/upstream && sha256sum --check SHA256SUMS)

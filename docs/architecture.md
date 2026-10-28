@@ -1,6 +1,7 @@
 # Current architecture
 
-This guide describes the implemented formatter as of 2026-10-10. The
+This guide describes the implemented formatter as of 2026-10-28, with the
+frontend pinned to Revo `eefa192`. The
 [domain glossary](../CONTEXT.md) defines its terms; the
 [README](../README.md) defines public behavior and options.
 
@@ -13,13 +14,20 @@ This guide describes the implemented formatter as of 2026-10-10. The
 3. Layout builds a document from complete token envelopes and renders a preferred
    candidate. If that candidate fails preservation, it tries conservative layout.
 4. `AnalyzedSource::preserves` admits and parses the candidate, compares the exact
-   interleaved token/comment tape, and checks complete AST equality modulo spans.
+   interleaved token/comment tape, and checks complete syntax tree equality
+   modulo source coordinates.
 5. The public formatter repeats the complete choice algorithm until it reaches a
    byte-identical fixed point, allowing at most four passes. Failure returns an
    error rather than an intermediate candidate.
 
-Parsing does not load imports, resolve types, execute programs or expand macros.
-Source positions can change, including positions observable by procedural macros.
+Parsing does not load imports, resolve types or execute programs. Source
+positions can change.
+
+The pinned parser recurses with large frames up to its own nesting cap of 256
+expression frames, about 127 nested prefixes. That needs more than a 2 MiB
+thread, so the oracle runs every parse and comparison on a dedicated 16 MiB
+frontend thread and joins it before returning. Admission still runs first, on
+the caller's thread.
 
 ## Ownership
 
@@ -33,9 +41,9 @@ Source positions can change, including positions observable by procedural macros
 | [src/cli.rs](../src/cli.rs) | Argument grammar, bounded input, modes, per-input options from configuration and diagnostics. Its private `write_batch` module owns the `--write` lifecycle: preparing a batch checks and formats every input before any replacement, and only a prepared batch can be applied. Applying consumes it, replacing each changed file atomically in input order and reporting earlier completed paths on a later failure; the batch is not a transaction |
 | [src/config.rs](../src/config.rs) | Range-validated layout flags, configuration discovery, bounded reading, TOML parsing and per-input option resolution. Flags are checked when supplied; file values only after precedence |
 | [bridge/frontend.zig](../bridge/frontend.zig) | Synchronous C ABI, per-operation arenas and pure frontend calls |
-| [bridge/source.zig](../bridge/source.zig) | Exact raw token envelopes, collector-owned block completion and source-backed layout hints |
-| [bridge/compare.zig](../bridge/compare.zig) | Exhaustive structural comparison, ignoring only exact upstream `ast.Span` values |
-| [bridge/input_limits.zig](../bridge/input_limits.zig) | Lexer-only admission with global fragment, nesting and weighted complexity budgets |
+| [bridge/source.zig](../bridge/source.zig) | The interleaved token/comment tape, with each complete string as one opaque token, and layout hints from exact CST token extents |
+| [bridge/compare.zig](../bridge/compare.zig) | Exhaustive iterative structural comparison of concrete syntax trees, ignoring spans and token coordinates |
+| [bridge/input_limits.zig](../bridge/input_limits.zig) | Lexer-only admission with global nesting and weighted complexity budgets |
 | [build.rs](../build.rs) | Exact toolchain/platform checks and static bridge compilation |
 
 ## Layout boundaries
@@ -43,29 +51,23 @@ Source positions can change, including positions observable by procedural macros
 `LayoutIndex::scope(token, limit)` returns a complete construct only when its
 lexical envelope fits inside the caller's token range. It owns scope priority and
 the header, delimiter/generic, match and arm facts used by all three layout
-traversals. Tokens remain the printing authority; AST source hints may omit
-punctuation or overlap, and are not a complete surface syntax tree.
+traversals. Tokens remain the printing authority; source hints can overlap and
+are not a complete surface syntax tree.
 
-The source collector owns one token-indexed table of complete block ends. It
-proves an actual block from its AST provenance and source `do` opener, then
-completes descendants child-first in the existing admitted traversal. For a
-nonempty block, it finds the first lexical `end` at or beyond the completed
-descendant extent; an empty block's span already includes its closer. This handles
-final nested blocks and declaration wrappers whose own spans omit their bodies.
-Missing closers fail metadata collection. A final linear pass extends applicable
-block, statement and body hints from that same table, preserving hint order.
+The pinned parser returns a lossless concrete syntax tree (CST) whose nodes
+carry their significant tokens. The source collector takes each hint's extent
+from the first and last token a node owns, so a `do` block's hint runs from its
+`do` token to its `end` token and a statement's hint includes its doc comment.
+It queues nodes while collecting tokens instead of using upstream's recursive
+token walk, which exhausts a 2 MiB stack on long operator chains. Parsing
+performs no lowering, so there are no generated wrappers. Interpolated string
+contents stop traversal: the tape treats each complete string, including its
+interpolations and any comments inside them, as one opaque token.
 
-Generated wrappers still participate in descendant completion. Independently
-proven source blocks beneath them emit `block` facts, including blocks on either
-side of lowered pipes. Synthetic statement and header hints remain suppressed;
-opaque literal and quasiquote interiors stop traversal. Generated ancestry alone
-cannot hide a real block needed by layout.
-
-Rust consumes the existing `block` hints to seed block pairs and pairs only
+Rust consumes the `block` hints to seed block pairs and pairs only
 `()`/`[]`/`{}` lexically. Neither owner balances raw `do`/`end` spellings, which
-the pinned parser also accepts as identifiers. The existing metadata interface
-is the seam between semantic block ownership and layout. This gives the
-collector greater depth and keeps block-envelope changes local to one owner.
+remain valid field names. The metadata interface is the seam between semantic
+block ownership and layout.
 
 Header fitting is independent of a following block body. Match subjects and arm
 lists own separate continuations. Arm-body seams come from the actual source
@@ -115,16 +117,18 @@ records the current repository scope and checks. The
 [architecture measurements](verification/architecture-deepening.md) are
 stage-specific evidence, not measurements of every later change.
 
-Admission is iterative and lexer-based, with counters shared across decoded
-fragments. The oracle admits every analyzed source, including generated
-candidates, before invoking the parser. AST equivalence accepts only analyzed
-pairs. Private collector stress tests explicitly bypass admission for trusted,
+Admission is iterative and lexer-based, with counters shared across the whole
+source, including interpolated values. The oracle admits every analyzed source,
+including generated candidates, before invoking the parser. Syntax tree
+equivalence accepts only analyzed pairs. Private collector stress tests explicitly bypass admission for trusted,
 shallow programs beyond the public token budget; that helper is not a second
 production entrypoint. Possible `do` introducers consume layout units; their
-presence also couples recursive prefix costs into that budget, including earlier fragments.
-These charges stay separate from the AST traversal operator term. Ordinary
+presence also couples recursive prefix costs into that budget, including
+earlier interpolations. These charges stay separate from the traversal operator
+term. Ordinary
 block-free operator/prefix accounting remains intact. The policy is verified
-through public formatting and preservation on 2 MiB debug/release threads.
+through public formatting and preservation on 2 MiB debug/release threads,
+including the deepest nesting the parser accepts.
 
 ## Editor integrations
 

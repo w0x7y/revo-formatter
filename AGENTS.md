@@ -19,10 +19,12 @@ Read [README.md](README.md) for build and test commands,
   including generated candidates. Read the
   [input admission policy](docs/verification/input-limits.md) before changing
   grammar-sensitive limits or adding recursive paths. Counters are global across
-  decoded fragments; test mixed forms on 2 MiB debug and release threads.
-- The source collector owns actual block envelopes from parsed provenance.
-  Revo also accepts `do` and `end` as names. Preserve real source blocks under
-  generated wrappers while keeping synthetic hints and opaque interiors excluded.
+  the source, including interpolations; test mixed forms on 2 MiB debug and
+  release threads. Parsing and comparison run on the oracle's dedicated frontend
+  stack; keep bridge walks over the syntax tree iterative.
+- The source collector owns actual block envelopes from CST token extents.
+  Revo also accepts `do` and `end` as field names. Keep opaque string interiors,
+  including interpolations, excluded from hints.
 - Preserve CLI exit codes and prevalidation of the complete write batch. Each
   file replacement is atomic; a batch is not a single transaction.
 - `vendor/revo/` is unchanged upstream source. Keep its revision, checksums and

@@ -1,6 +1,6 @@
 # Synthetic syntax stress corpus
 
-[syntax.rv](syntax.rv) is a handwritten, parse-only Revo file with 50 named
+[syntax.rv](syntax.rv) is a handwritten, parse-only Revo file with 49 named
 sections and an opening module comment. Do not execute it: names and imports
 need not exist, and some loops intentionally have no upper bound.
 [syntax.expected.rv](syntax.expected.rv) is its reviewed output with the default
@@ -20,8 +20,10 @@ interpolation modes, all comment forms, binding and assignment operators,
 tables, destructuring, fields, slices, ordinary/bare/method/generic calls,
 function signatures, defaults, types, record docs, ambient and public
 declarations, imports, native attributes, branches, matches, loops, labels,
-ranges, contextual keyword names, pipes, comptime, fibers, procedural macros,
-quasiquotes, tests and suites.
+ranges, contextual keyword fields, pipes, comptime, fibers, tests and suites.
+Revo `eefa192` removed procedural macros and quasiquotes, and no longer accepts
+`do` or `end` as binding names, so those sections were dropped or now use
+fields.
 
 The complete file includes deliberately sensitive call, method, generic, range
 and lexical adjacency. Its default output uses conservative layout and mainly
@@ -29,18 +31,18 @@ normalizes indentation. The isolated sections and composed expressions exercise
 preferred reflow independently. Width remains a soft target.
 
 The library tests in [corpus.rs](../../../src/tests/corpus.rs) check the complete
-file, 51 isolated sections including module documentation, and 36 expressions
+file, 50 isolated sections including module documentation, and 35 expressions
 in six surrounding constructs. Every source runs with LF and CRLF at widths
 20, 24, 40, 80, 120 and 240, indent widths 1, 2, 4 and 8, space and tab
 indentation, and blank-line limits 0, 1 and 2 (144 option sets). This gives
-77,184 valid input/option combinations. The separate user-supplied
-[file-read match](match-file-read.rv) adds 288 combinations, for 77,472 total.
+75,168 valid input/option combinations. The separate user-supplied
+[file-read match](match-file-read.rv) adds 288 combinations, for 75,456 total.
 It combines propagation followed by a method call, guarded `|` arms with an
 arrow on the next line, a typed table pattern and string interpolation; its
 default layout is checked against literal expected output. Each result passes the real
-interleaved token/comment tape and full AST preservation check, then a second
-formatting pass must return identical bytes. Fifteen invalid near misses are
-tested at all 144 option sets, giving another 2,160 rejection checks.
+interleaved token/comment tape and full syntax tree preservation check, then a second
+formatting pass must return identical bytes. Nineteen invalid near misses are
+tested at all 144 option sets, giving another 2,736 rejection checks.
 
 The CLI process test checks stdin, repeated formatting, file printing,
 `--check`, `--write`, and a final clean `--check` at three option pairs with
@@ -61,10 +63,11 @@ diff -u tests/fixtures/stress/syntax.expected.rv /tmp/revo-stress.rv
 The original combined draft exceeded the existing parser admission score.
 Repeated examples were removed to admit the complete file without raising
 resource limits. Invalid guessed syntax was moved into explicit rejection
-tests, including a labeled `do` block immediately piped into a call, which the
-pinned parser rejects. Neither was returned as damaged formatted source.
+tests. A labeled `do` block immediately piped into a call was one of them until
+Revo `eefa192`, which accepts it. Neither was returned as damaged formatted
+source.
 
 A finite corpus cannot cover every possible Revo program. These checks establish
 syntax preservation and formatting stability for these inputs; they do not
-typecheck, expand macros, resolve imports, execute programs, or establish
-behavioral equivalence for macros that read source coordinates.
+typecheck, resolve imports, execute programs, or establish behavioral
+equivalence.

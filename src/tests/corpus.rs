@@ -79,14 +79,6 @@ const VALID: &[Fixture] = &[
         name: "docs-proc.rv",
         source: include_str!("../../tests/fixtures/upstream/docs-proc.rv"),
     },
-    Fixture {
-        name: "docs-quotes.rv",
-        source: include_str!("../../tests/fixtures/upstream/docs-quotes.rv"),
-    },
-    Fixture {
-        name: "docs-proc-quote.rv",
-        source: include_str!("../../tests/fixtures/upstream/docs-proc-quote.rv"),
-    },
 ];
 
 fn combinations() -> impl Iterator<Item = FormatOptions> {
@@ -133,7 +125,7 @@ fn corpus_preserves_source_and_is_idempotent_with_reviewed_outputs() {
             cases += 1;
         }
     }
-    assert_eq!(cases, 720);
+    assert_eq!(cases, 648);
     assert_eq!(goldens, 4);
 }
 
@@ -160,13 +152,27 @@ fn expected_output(name: &str, options: &FormatOptions) -> Option<&'static str> 
 }
 
 #[test]
-fn documented_rejected_fixture_is_a_syntax_error() {
-    let source = include_str!("../../tests/fixtures/upstream/rejected/docs-type-name.rv");
-    for options in combinations() {
-        assert!(
-            matches!(format(source, &options), Err(FormatError::Syntax { .. })),
-            "rejected/docs-type-name.rv {options:?}"
-        );
+fn documented_rejected_fixtures_are_syntax_errors() {
+    for (name, source) in [
+        (
+            "docs-type-name.rv",
+            include_str!("../../tests/fixtures/upstream/rejected/docs-type-name.rv"),
+        ),
+        (
+            "docs-quotes.rv",
+            include_str!("../../tests/fixtures/upstream/rejected/docs-quotes.rv"),
+        ),
+        (
+            "docs-proc-quote.rv",
+            include_str!("../../tests/fixtures/upstream/rejected/docs-proc-quote.rv"),
+        ),
+    ] {
+        for options in combinations() {
+            assert!(
+                matches!(format(source, &options), Err(FormatError::Syntax { .. })),
+                "rejected/{name} {options:?}"
+            );
+        }
     }
 }
 
@@ -176,7 +182,7 @@ fn malformed_sources_never_produce_candidates() {
         "let x =",
         "\"unterminated",
         "let x = 1 )",
-        "proc () 1",
+        "f \"x\" \"y\"",
         "$",
         "let x=1\n#! late !#",
     ] {
@@ -285,8 +291,8 @@ fn synthetic_syntax_sections_preserve_source_and_are_idempotent() {
         cases += check_stress_source(name, &source);
         sections += 1;
     }
-    assert_eq!(sections, 51);
-    assert_eq!(cases, 14_688);
+    assert_eq!(sections, 50);
+    assert_eq!(cases, 14_400);
     eprintln!("{sections} stress sections: {cases} input/option combinations");
 }
 
@@ -306,7 +312,6 @@ fn composed_syntax_preserves_source_and_is_idempotent() {
         "\"#{value:?} #{other:p}\"",
         "'first\n  second'",
         "\"\"\"\n  first\n    second\n  \"\"\"",
-        "`f(%value)`",
         "{[key]=value,nested={first,second}}",
         "values[1..2..8].field",
         "receiver:method(value):other()",
@@ -319,7 +324,7 @@ fn composed_syntax_preserves_source_and_is_idempotent() {
         "unless condition fallback",
         "match value |{:ok,x} when x>0=>x |_=>0",
         "match |condition=>1 |_=>0",
-        "do let do=1;receiver.end end",
+        "do receiver.do=1;receiver.end end",
         "do/once break/once(value) end",
         "loop/again do break/again(value) end",
         "for i in 0..3 do consume(i) end",
@@ -347,7 +352,7 @@ fn composed_syntax_preserves_source_and_is_idempotent() {
             cases += check_stress_source(&source, &source);
         }
     }
-    assert_eq!(cases, 62_208);
+    assert_eq!(cases, 60_480);
     eprintln!("composed syntax: {cases} input/option combinations");
 }
 
@@ -367,10 +372,14 @@ fn invalid_stress_syntax_is_rejected_without_a_candidate() {
         "@unknown fn f() 1",
         "let x:int=1",
         "type Broken={?name:string}",
-        "proc missing(iter) {}",
-        "let quote=`(unterminated`",
         "\"#{(unterminated}\"",
-        "(do/once break/once(value) end) |> transform()",
+        "let do=1",
+        "let end=1",
+        "do/end end",
+        "for do,end in xs do end",
+        "let quote=`f(%value)`",
+        "let nested=\"#{f(\\\"inner\\\")}\"",
+        "f \"x\" \"y\"",
     ] {
         for options in stress_options() {
             assert!(

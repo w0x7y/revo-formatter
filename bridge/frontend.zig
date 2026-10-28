@@ -16,18 +16,18 @@ fn response(value: Response) Buffer {
 export fn revo_free(buffer: Buffer) void {
     if (buffer.ptr) |ptr| allocator.free(ptr[0..buffer.len]);
 }
-// Lexer-only admission check. It must run before any parser or AST traversal.
+// Lexer-only admission check. It must run before any parser or CST traversal.
 export fn revo_preflight(ptr: [*]const u8, len: usize) Buffer {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     input_limits.check(arena.allocator(), ptr[0..len]) catch |err| return response(.{ .validation = switch (err) {
-        error.EmbeddedWorkLimit => "input complexity limit exceeded: decoded lexer work (1048576 bytes)",
+        error.EmbeddedWorkLimit => "input complexity limit exceeded: lexer source bytes (1048576)",
         error.NestingLimit => "input complexity limit exceeded: combined nesting (32)",
         error.TokenLimit => "input complexity limit exceeded: expanded tokens (4096)",
         error.ParserLimit => "input complexity limit exceeded: parser score (672)",
         error.LayoutLimit => "input complexity limit exceeded: layout score (800)",
         error.TreeLimit => "input complexity limit exceeded: syntax tree score (1536)",
-        error.TraversalLimit => "input complexity limit exceeded: AST traversal score (900)",
+        error.TraversalLimit => "input complexity limit exceeded: syntax tree traversal score (900)",
         else => @errorName(err),
     } });
     return response(.{});
@@ -47,9 +47,9 @@ fn failure(parsed: Parser.ParseResult) ?Failure {
         },
     };
 }
-// A few upstream syntax failures escape the report API as errors (for example
-// anonymous proc declarations). Keep those in the syntax category; allocation
-// failure remains a bridge/validation failure.
+// Upstream syntax failures without a report kind escape the report API as
+// errors. Keep those in the syntax category; allocation failure remains a
+// bridge/validation failure.
 fn parse(alloc: std.mem.Allocator, source: []const u8) !Parser.ParseResult {
     return Parser.parseSourceReport(alloc, source, .{ .repl_mode = false }) catch |err| switch (err) {
         error.OutOfMemory => return err,
@@ -65,8 +65,8 @@ fn analyze(source: []const u8) !Buffer {
     const alloc = arena.allocator();
     const parsed = try parse(alloc, source);
     if (failure(parsed)) |err| return response(.{ .syntax = err });
-    const lexed = try Lexer.lexAt(alloc, source, .{});
-    return response(.{ .tokens = try source_metadata.tokens(alloc, source, lexed), .regions = try source_metadata.regions(alloc, source, lexed, parsed.ok) });
+    const tape = try source_metadata.tokens(alloc, source, try Lexer.lexAll(alloc, source));
+    return response(.{ .tokens = tape, .regions = try source_metadata.regions(alloc, tape, parsed.ok) });
 }
 export fn revo_equivalent(a: [*]const u8, a_len: usize, b: [*]const u8, b_len: usize) Buffer {
     return equivalent(a[0..a_len], b[0..b_len]) catch |err| response(.{ .validation = @errorName(err) });
@@ -78,5 +78,5 @@ fn equivalent(a: []const u8, b: []const u8) !Buffer {
     if (failure(original)) |err| return response(.{ .syntax = err });
     const candidate = try parse(arena.allocator(), b);
     if (failure(candidate)) |err| return response(.{ .syntax = err });
-    return response(.{ .equivalent = compare.equal(@TypeOf(original.ok), original.ok, candidate.ok) });
+    return response(.{ .equivalent = try compare.equal(arena.allocator(), @TypeOf(original.ok), original.ok, candidate.ok) });
 }

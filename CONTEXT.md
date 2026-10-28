@@ -45,13 +45,12 @@ A proposed layout that has not yet passed source-preservation checks.
 
 **Source preservation**:
 Equality of token tapes together with equality of parsed trees after excluding source coordinates.
-This is syntax preservation; programs and position-sensitive macros are not
-executed to establish behavioral equivalence.
+This is syntax preservation; programs are not executed to establish behavioral
+equivalence.
 
 **Input admission**:
 Lexer-only resource checks before parsing, recursive traversal or layout. Global
-budgets include decoded interpolation and quasiquote fragments and apply again
-to candidates. The [admission policy](docs/verification/input-limits.md) defines
+budgets include interpolated values and apply again to candidates. The [admission policy](docs/verification/input-limits.md) defines
 the exact costs and verified limits.
 
 **Fixed point**:

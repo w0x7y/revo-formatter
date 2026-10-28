@@ -8,7 +8,7 @@ pub(crate) struct SourceToken {
     pub end: usize,
 }
 /// Source-backed hints, not a concrete syntax tree. Statements are immediate
-/// children of statement lists (including the module); blocks are concrete AST
+/// children of statement lists (including the module); blocks are concrete CST
 /// blocks; match arms begin at their matcher. Match-expression, match-head, and
 /// arm-head hints identify complete matches, first bars, and actual arm arrows.
 /// Header/body and unary-sign hints identify other expression seams. Head hints
@@ -178,8 +178,30 @@ pub(crate) fn analyze(source: &str) -> Result<AnalyzedSource<'_>, FormatError> {
 // stress tests bypass admission to exercise the collector beyond public limits.
 fn analyze_unchecked(source: &str) -> Result<AnalyzedSource<'_>, FormatError> {
     // SAFETY: both arguments describe the borrowed source, live for this call.
-    let result = decode(unsafe { revo_analyze(source.as_ptr(), source.len()) })?;
+    let result =
+        on_frontend_stack(|| decode(unsafe { revo_analyze(source.as_ptr(), source.len()) }))?;
     AnalyzedSource::from_response(source, result)
+}
+
+/// The pinned parser recurses up to its own depth cap with large frames, more
+/// than a 2 MiB caller thread holds. Parsing and comparison therefore run on a
+/// dedicated stack that covers that cap independent of the caller's stack.
+const FRONTEND_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn on_frontend_stack(
+    call: impl FnOnce() -> Result<Response, FormatError> + Send,
+) -> Result<Response, FormatError> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("revo-frontend".into())
+            .stack_size(FRONTEND_STACK_BYTES)
+            .spawn_scoped(scope, call)
+            .map_err(|error| {
+                FormatError::Validation(format!("could not start the frontend thread: {error}"))
+            })?
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
 }
 fn equivalent(
     original: &AnalyzedSource<'_>,
@@ -188,13 +210,15 @@ fn equivalent(
     let original = original.source();
     let candidate = candidate.source();
     // SAFETY: source slices remain live for the complete synchronous call.
-    decode(unsafe {
-        revo_equivalent(
-            original.as_ptr(),
-            original.len(),
-            candidate.as_ptr(),
-            candidate.len(),
-        )
+    on_frontend_stack(|| {
+        decode(unsafe {
+            revo_equivalent(
+                original.as_ptr(),
+                original.len(),
+                candidate.as_ptr(),
+                candidate.len(),
+            )
+        })
     })?
     .equivalent
     .ok_or_else(|| FormatError::Validation("missing equivalence result".into()))
@@ -223,7 +247,8 @@ mod tests {
     fn preservation_rejects_equal_ast_different_tape() {
         for (source, candidate) in [
             ("let x = 1 ## note ##", "## note ## let x = 1"),
-            ("let x = 'same'", "let x = \"same\""),
+            // Raw strings decode CRLF to LF, so only the tape sees the bytes.
+            ("let x = 'a\r\nb'", "let x = 'a\nb'"),
         ] {
             let original = analyze(source).unwrap();
             let changed = analyze(candidate).unwrap();
@@ -240,7 +265,10 @@ mod tests {
             ("let x=1", "let x = 1\n"),
             ("# 文書\r\nlet x=\"é\\n\"", "# 文書\r\nlet x = \"é\\n\"\r\n"),
             ("let x='first\nsecond'", "let x = 'first\nsecond'\r\n"),
-            ("let x=`do let y = 1 end`", "let x = `do let y = 1 end`\n"),
+            (
+                "let x=\"#{do let y = 1 end}\"",
+                "let x = \"#{do let y = 1 end}\"\n",
+            ),
         ] {
             assert!(
                 analyze(source).unwrap().preserves(candidate).unwrap(),
@@ -426,7 +454,7 @@ mod tests {
             "\"unterminated",
             "let x = 1 )",
             "let = 1; let y = 2",
-            "proc () 1",
+            "f \"x\" \"y\"",
         ] {
             assert!(
                 matches!(analyze(source), Err(FormatError::Syntax { .. })),
@@ -494,8 +522,12 @@ mod tests {
         assert!(regions.contains(&("match_arm", "_ => 3")), "{regions:?}");
     }
     #[test]
-    fn generated_blocks_and_quote_inner_nodes_are_not_source_regions() {
-        for source in ["1 |> 2", "import { \"a\", \"b\" }", "`do let x = 1 end`"] {
+    fn interpolated_blocks_are_not_source_regions() {
+        for source in [
+            "1 |> 2",
+            "import { \"a\", \"b\" }",
+            "\"#{do let x = 1 end}\"",
+        ] {
             let analysis = analyze(source).unwrap();
             assert!(
                 !analysis.regions().iter().any(|r| r.kind == "block"),
@@ -519,7 +551,7 @@ mod tests {
                 vec![
                     ("statement", 0, 38),
                     ("block", 0, 38),
-                    ("statement", 9, 27),
+                    ("statement", 9, 31),
                     ("block", 17, 31),
                     ("statement", 26, 27),
                     ("statement", 33, 34),
@@ -556,20 +588,20 @@ mod tests {
             (
                 "import { \"a\", \"b\" }; let x = 1",
                 11,
-                vec![("statement", 21, 30)],
+                vec![("statement", 0, 19), ("statement", 21, 30)],
             ),
-            ("let x = `do let y = 1 end`", 4, vec![("statement", 0, 26)]),
             (
                 "let x = \"value #{do let y = 1; y end}\"",
                 4,
                 vec![("statement", 0, 38)],
             ),
-            ("1 |> 2", 3, vec![]),
+            ("1 |> 2", 3, vec![("statement", 0, 6)]),
             ("", 0, vec![]),
             (
                 "#! módulo é !#\n#* 文書 *#\nlet x = \"é\"",
                 6,
-                vec![("statement", 30, 42)],
+                // A doc comment belongs to the statement it documents.
+                vec![("statement", 17, 42)],
             ),
         ] {
             let analysis = analyze(source).unwrap();
@@ -594,13 +626,13 @@ mod tests {
         for (source, expected) in [
             ("do foo.end end", vec!["do foo.end end"]),
             (
-                "do let do = 1; let end = 2 end",
-                vec!["do let do = 1; let end = 2 end"],
+                "do x.do = 1; x.end = 2 end",
+                vec!["do x.do = 1; x.end = 2 end"],
             ),
-            ("fn f(do,end) do foo.do end", vec!["do foo.do end"]),
+            ("fn f(x) do foo.do end", vec!["do foo.do end"]),
             (
-                "do/do do/end end end",
-                vec!["do/do do/end end end", "do/end end"],
+                "do/outer do/inner end end",
+                vec!["do/outer do/inner end end", "do/inner end"],
             ),
             (
                 "do test \"x\" do foo.end end end",
@@ -619,8 +651,8 @@ mod tests {
                 vec!["do let x = do 1 end |> 2 end", "do 1 end"],
             ),
             (
-                "do let x = `do end`; let y = \"#{do 1 end}\" end",
-                vec!["do let x = `do end`; let y = \"#{do 1 end}\" end"],
+                "do let y = \"#{do 1 end}\" end",
+                vec!["do let y = \"#{do 1 end}\" end"],
             ),
         ] {
             let analysis = analyze(source).unwrap();
@@ -643,7 +675,7 @@ mod tests {
                     .any(|r| r.kind == kind && &source[r.start..r.end] == body)
             );
         }
-        let source = "do/end do foo.end end end";
+        let source = "do/outer do foo.end end end";
         let analysis = analyze(source).unwrap();
         for kind in ["statement", "block"] {
             assert!(
@@ -656,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn piped_source_blocks_retain_only_proven_block_metadata() {
+    fn piped_source_blocks_keep_their_block_metadata() {
         for (source, expected) in [
             ("do 1 end |> 2", vec!["do 1 end"]),
             (
@@ -668,14 +700,15 @@ mod tests {
                 vec!["do fn f() do foo.end end end", "do foo.end end"],
             ),
             (
-                "1 |> do `do end`; \"#{do 1 end}\" end",
-                vec!["do `do end`; \"#{do 1 end}\" end"],
+                "1 |> do \"#{do 1 end}\" end",
+                vec!["do \"#{do 1 end}\" end"],
             ),
         ] {
             let analysis = analyze(source).unwrap();
             let actual: Vec<_> = analysis
                 .regions()
                 .iter()
+                .filter(|r| r.kind == "block")
                 .map(|r| (r.kind.as_str(), &source[r.start..r.end]))
                 .collect();
             let expected: Vec<_> = expected.into_iter().map(|block| ("block", block)).collect();
